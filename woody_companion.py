@@ -469,9 +469,9 @@ def run_dance(dance_index, dry_run=False):
     if dry_run:
         return
 
+    stop_all_motion(dry_run=False)
     active_dance_process = subprocess.Popen(["python3", DANCE_SCRIPT, str(dance_index)])
-    active_dance_process.wait()
-    active_dance_process = None
+    print("[woody] dance started in background; say stop to interrupt it")
 
 
 def plan_turn(user_text, history):
@@ -516,6 +516,7 @@ def plan_turn(user_text, history):
 def execute_plan(plan, dry_run=False):
     if plan.get("stop_motion"):
         stop_all_motion(dry_run=dry_run)
+        return
 
     dance_index = plan.get("dance_index")
     if dance_index:

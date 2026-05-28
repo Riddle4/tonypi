@@ -78,6 +78,7 @@ action groups:
 | `wing_chun` | `wing_chun` | wing chun |
 | `celebrate` | `chest` | celebration |
 | `dance` | `dance1`..`dance4` | dance with music |
+| `stop` / `arrete tout` | stop motion | stop action groups and current dance |
 
 More action groups exist, but they should be added after testing one by one.
 

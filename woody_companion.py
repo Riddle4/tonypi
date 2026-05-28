@@ -52,7 +52,9 @@ DEFAULT_WAKE_ALIASES = (
     "salut woogie",
     "salut mon ami",
 )
-EXIT_PHRASES = {"stop", "arrete", "au revoir", "bonne nuit", "retourne dormir"}
+STOP_PHRASES = {"stop", "arrete", "arrete toi", "arrete tout", "immobile"}
+SLEEP_PHRASES = {"au revoir", "bonne nuit", "retourne dormir"}
+EXIT_PHRASES = STOP_PHRASES | SLEEP_PHRASES
 
 LLM_MODEL = os.environ.get("WOODY_LLM_MODEL", "gpt-4o-mini")
 TRANSCRIBE_MODEL = os.environ.get("WOODY_TRANSCRIBE_MODEL", "gpt-4o-transcribe")
@@ -60,6 +62,7 @@ TTS_MODEL = os.environ.get("WOODY_TTS_MODEL", "gpt-4o-mini-tts")
 TTS_VOICE = os.environ.get("WOODY_TTS_VOICE", "alloy")
 
 client = None
+active_dance_process = None
 
 TRANSCRIPTION_PROMPT = """
 Transcris en francais une commande adressee a Woody, un petit robot compagnon.
@@ -114,7 +117,8 @@ Regles:
 - Si l'utilisateur veut discuter, laisse "actions" vide et "dance_index" a null.
 - Si l'utilisateur demande de danser, choisis dance_index entre 1 et 4.
 - Si l'utilisateur demande une danse precise 1, 2, 3 ou 4, respecte ce numero.
-- Si l'utilisateur dit d'arreter, dormir, ou au revoir, mets "sleep": true.
+- Si l'utilisateur dit stop ou arrete, mets "stop_motion": true.
+- Si l'utilisateur dit dormir, bonne nuit, ou au revoir, mets "sleep": true.
 - Pour avancer/reculer/tourner plusieurs fois, repete l'action mais limite avec max_repeat.
 - Apres une sequence de mouvement, ajoute "stand" si utile.
 - Refuse poliment les demandes dangereuses ou impossibles.
@@ -152,8 +156,18 @@ def fast_plan(user_text):
     """Return a deterministic plan for obvious robot commands."""
     normalized = normalize(user_text)
 
-    if normalized in EXIT_PHRASES:
+    if normalized in SLEEP_PHRASES:
         return {"reply": "D'accord, je retourne en veille.", "actions": [], "sleep": True}
+
+    if normalized in STOP_PHRASES or any(phrase in normalized for phrase in STOP_PHRASES):
+        return {
+            "reply": "J'arrete tous les mouvements.",
+            "actions": [],
+            "dance_index": None,
+            "stop_motion": True,
+            "sleep": False,
+            "fast": True,
+        }
 
     if "danse" in normalized or "dancer" in normalized:
         dance_index = extract_repeat(normalized, default=1, maximum=4)
@@ -379,6 +393,35 @@ def speak_async(text, enabled=True):
     return thread
 
 
+def stop_all_motion(dry_run=False):
+    global active_dance_process
+    print("[woody] stop all motion")
+
+    if dry_run:
+        return
+
+    proc = active_dance_process
+    if proc and proc.poll() is None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=1)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    active_dance_process = None
+
+    if AGC is not None:
+        for method_name in ("stopActionGroup", "stopAction"):
+            method = getattr(AGC, method_name, None)
+            if method is not None:
+                try:
+                    method()
+                except Exception as exc:
+                    print(f"[woody] {method_name} failed: {exc}")
+
+
 def clamp_repeat(action_name, repeat):
     try:
         repeat = int(repeat)
@@ -408,6 +451,7 @@ def run_action(action_name, repeat=1, dry_run=False):
 
 
 def run_dance(dance_index, dry_run=False):
+    global active_dance_process
     try:
         dance_index = int(dance_index)
     except Exception:
@@ -425,7 +469,9 @@ def run_dance(dance_index, dry_run=False):
     if dry_run:
         return
 
-    subprocess.run(["python3", DANCE_SCRIPT, str(dance_index)], check=False)
+    active_dance_process = subprocess.Popen(["python3", DANCE_SCRIPT, str(dance_index)])
+    active_dance_process.wait()
+    active_dance_process = None
 
 
 def plan_turn(user_text, history):
@@ -468,6 +514,9 @@ def plan_turn(user_text, history):
 
 
 def execute_plan(plan, dry_run=False):
+    if plan.get("stop_motion"):
+        stop_all_motion(dry_run=dry_run)
+
     dance_index = plan.get("dance_index")
     if dance_index:
         run_dance(dance_index, dry_run=dry_run)
@@ -484,7 +533,9 @@ def companion_turn(user_text, history, speak_enabled=True, dry_run=False):
     reply = plan.get("reply") or "D'accord."
     print(f"Woody: {reply}")
 
-    has_physical_action = bool(plan.get("dance_index") or plan.get("actions"))
+    has_physical_action = bool(
+        plan.get("stop_motion") or plan.get("dance_index") or plan.get("actions")
+    )
     if has_physical_action:
         voice_thread = speak_async(reply, enabled=speak_enabled)
         execute_plan(plan, dry_run=dry_run)

@@ -94,10 +94,14 @@ SYSTEM_PROMPT = f"""
 Tu es Woody, un compagnon robot TonyPi chaleureux, curieux et francophone.
 
 Objectif:
-- Dialoguer naturellement en francais.
-- Detecter les commandes physiques demandees par l'utilisateur.
+- Dialoguer naturellement en francais sur tous les sujets courants.
+- Repondre aux questions generales comme une vraie personne: blagues, recettes,
+  explications, conseils simples, conversation.
+- Detecter les commandes physiques seulement quand l'utilisateur demande
+  explicitement un mouvement, une posture, un salut, ou une danse.
 - Ne jamais inventer de mouvement hors catalogue.
-- Repondre avec une phrase courte et naturelle.
+- Repondre naturellement. Pour une conversation generale, tu peux donner une
+  reponse utile de quelques phrases.
 
 Catalogue de commandes autorisees:
 {action_prompt_catalog()}
@@ -114,14 +118,27 @@ Schema:
 }}
 
 Regles:
-- Si l'utilisateur veut discuter, laisse "actions" vide et "dance_index" a null.
-- Si l'utilisateur demande de danser, choisis dance_index entre 1 et 4.
+- Par defaut, l'utilisateur veut discuter: reponds dans "reply", laisse
+  "actions" vide et "dance_index" a null.
+- Ne propose pas de danse pour remplacer une reponse generale.
+- Si l'utilisateur demande une blague, raconte une blague.
+- Si l'utilisateur demande une recette, donne une recette courte.
+- Si l'utilisateur demande une explication, explique simplement.
+- Si l'utilisateur demande explicitement de danser, choisis dance_index entre 1 et 4.
 - Si l'utilisateur demande une danse precise 1, 2, 3 ou 4, respecte ce numero.
 - Si l'utilisateur dit stop ou arrete, mets "stop_motion": true.
 - Si l'utilisateur dit dormir, bonne nuit, ou au revoir, mets "sleep": true.
 - Pour avancer/reculer/tourner plusieurs fois, repete l'action mais limite avec max_repeat.
 - Apres une sequence de mouvement, ajoute "stand" si utile.
 - Refuse poliment les demandes dangereuses ou impossibles.
+
+Exemples:
+- User: "Raconte-moi une blague"
+  JSON: {{"reply":"Pourquoi les plongeurs plongent-ils toujours en arrière ? Parce que sinon ils tombent dans le bateau.","actions":[],"dance_index":null,"sleep":false}}
+- User: "Comment faire un gateau au chocolat ?"
+  JSON: {{"reply":"Melange 200 g de chocolat fondu avec 100 g de beurre, 3 oeufs, 100 g de sucre et 80 g de farine. Verse dans un moule et cuis environ 20 minutes a 180 degres.","actions":[],"dance_index":null,"sleep":false}}
+- User: "Danse la deuxieme danse"
+  JSON: {{"reply":"Je lance la danse.","actions":[],"dance_index":2,"sleep":false}}
 """
 
 
@@ -218,6 +235,52 @@ def fast_plan(user_text):
             }
 
     return None
+
+
+def is_general_question(user_text):
+    normalized = normalize(user_text)
+    question_markers = (
+        "raconte",
+        "blague",
+        "recette",
+        "gateau",
+        "chocolat",
+        "comment faire",
+        "explique",
+        "pourquoi",
+        "c est quoi",
+        "qu est ce",
+        "qui est",
+        "quel est",
+        "quelle est",
+        "donne moi",
+    )
+    action_markers = (
+        "danse",
+        "avance",
+        "recule",
+        "tourne",
+        "salue",
+        "saluer",
+        "bonjour",
+        "stop",
+        "arrete",
+        "debout",
+        "squat",
+        "abdo",
+    )
+    return any(marker in normalized for marker in question_markers) and not any(
+        marker in normalized for marker in action_markers
+    )
+
+
+def sanitize_plan(user_text, plan):
+    if is_general_question(user_text):
+        plan["actions"] = []
+        plan["dance_index"] = None
+        plan["stop_motion"] = False
+        plan["sleep"] = False
+    return plan
 
 
 def get_client():
@@ -529,7 +592,7 @@ def execute_plan(plan, dry_run=False):
 
 
 def companion_turn(user_text, history, speak_enabled=True, dry_run=False):
-    plan = fast_plan(user_text) or plan_turn(user_text, history)
+    plan = fast_plan(user_text) or sanitize_plan(user_text, plan_turn(user_text, history))
 
     reply = plan.get("reply") or "D'accord."
     print(f"Woody: {reply}")

@@ -118,6 +118,19 @@ Direct voice mode with spoken replies:
 ssh pi@192.168.1.15 'cd /home/pi/cosmo_robotics && python3 woody_companion.py --speak'
 ```
 
+If transcription clips the beginning or end of your sentence, increase the
+recording window:
+
+```bash
+python3 woody_companion.py --speak --turn-seconds 9
+```
+
+If the microphone device changes, override it without editing code:
+
+```bash
+WOODY_AUDIO_DEVICE=hw:2,0 python3 woody_companion.py --speak
+```
+
 Wake phrase mode with spoken replies:
 
 ```bash

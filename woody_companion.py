@@ -36,6 +36,8 @@ WAKE_AUDIO_FILE = os.path.join(APP_DIR, "woody_wake.wav")
 TURN_AUDIO_FILE = os.path.join(APP_DIR, "woody_turn.wav")
 REPLY_AUDIO_FILE = os.path.join(APP_DIR, "woody_reply.mp3")
 
+DEFAULT_AUDIO_DEVICE = os.environ.get("WOODY_AUDIO_DEVICE", "hw:2,0")
+DEFAULT_AUDIO_RATE = int(os.environ.get("WOODY_AUDIO_RATE", "48000"))
 WAKE_PHRASE = "salut woody"
 DEFAULT_WAKE_ALIASES = (
     "salut woody",
@@ -52,6 +54,14 @@ TTS_MODEL = os.environ.get("WOODY_TTS_MODEL", "gpt-4o-mini-tts")
 TTS_VOICE = os.environ.get("WOODY_TTS_VOICE", "alloy")
 
 client = None
+
+TRANSCRIPTION_PROMPT = """
+Transcris en francais une commande adressee a Woody, un petit robot compagnon.
+Les phrases possibles incluent: salut Woody, avance d'un pas, recule, tourne a
+gauche, tourne a droite, peux-tu me saluer, danse, danse la deuxieme danse,
+comment vas-tu, raconte-moi quelque chose, au revoir.
+Ignore les bruits de fond et ne traduis pas.
+"""
 
 
 SYSTEM_PROMPT = f"""
@@ -112,16 +122,16 @@ def get_client():
     return client
 
 
-def record_audio(path, seconds):
+def record_audio(path, seconds, device=DEFAULT_AUDIO_DEVICE, rate=DEFAULT_AUDIO_RATE):
     duration = max(1, int(round(seconds)))
     cmd = [
         "arecord",
         "-D",
-        "hw:2,0",
+        device,
         "-f",
         "S16_LE",
         "-r",
-        "48000",
+        str(rate),
         "-c",
         "2",
         "-d",
@@ -133,11 +143,20 @@ def record_audio(path, seconds):
 
 def transcribe_audio(path):
     with open(path, "rb") as audio:
-        transcript = get_client().audio.transcriptions.create(
-            model=TRANSCRIBE_MODEL,
-            file=audio,
-            language="fr",
-        )
+        try:
+            transcript = get_client().audio.transcriptions.create(
+                model=TRANSCRIBE_MODEL,
+                file=audio,
+                language="fr",
+                prompt=TRANSCRIPTION_PROMPT,
+            )
+        except TypeError:
+            audio.seek(0)
+            transcript = get_client().audio.transcriptions.create(
+                model=TRANSCRIBE_MODEL,
+                file=audio,
+                language="fr",
+            )
     return transcript.text.strip()
 
 
@@ -208,18 +227,34 @@ def plan_turn(user_text, history):
     messages.extend(history[-8:])
     messages.append({"role": "user", "content": user_text})
 
-    response = get_client().chat.completions.create(
-        model=LLM_MODEL,
-        temperature=0.4,
-        messages=messages,
-    )
+    kwargs = {
+        "model": LLM_MODEL,
+        "temperature": 0.4,
+        "messages": messages,
+        "response_format": {"type": "json_object"},
+    }
+    try:
+        response = get_client().chat.completions.create(**kwargs)
+    except Exception as exc:
+        message = str(exc).lower()
+        if "response_format" not in message and "json_object" not in message:
+            raise
+        kwargs.pop("response_format", None)
+        response = get_client().chat.completions.create(**kwargs)
+
     content = response.choices[0].message.content.strip()
     try:
         return json.loads(content)
     except json.JSONDecodeError:
+        embedded = re.search(r"\{.*\}", content, re.DOTALL)
+        if embedded:
+            try:
+                return json.loads(embedded.group(0))
+            except json.JSONDecodeError:
+                pass
         print(f"[woody] invalid JSON from model: {content}")
         return {
-            "reply": "Je t'ai entendu, mais j'ai mal compris la commande.",
+            "reply": content or "Je t'ai entendu, mais j'ai mal compris la commande.",
             "actions": [],
             "dance_index": None,
             "sleep": False,
@@ -268,7 +303,7 @@ def voice_session(args):
     history = []
     speak("Je suis la. Que veux-tu faire ?", enabled=args.speak)
     while True:
-        print("[woody] listening for a command...")
+        print(f"[woody] parle maintenant ({args.turn_seconds:.0f}s)...")
         record_audio(TURN_AUDIO_FILE, args.turn_seconds)
         text = transcribe_audio(TURN_AUDIO_FILE)
         print(f"Vous: {text}")
@@ -315,7 +350,7 @@ def main():
     parser.add_argument("--speak", action="store_true", help="speak replies with TTS")
     parser.add_argument("--dry-run", action="store_true", help="do not run robot actions")
     parser.add_argument("--wake-seconds", type=float, default=4.0)
-    parser.add_argument("--turn-seconds", type=float, default=5.0)
+    parser.add_argument("--turn-seconds", type=float, default=7.0)
     args = parser.parse_args()
 
     os.makedirs(APP_DIR, exist_ok=True)

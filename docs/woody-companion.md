@@ -1,0 +1,128 @@
+# Woody Companion App
+
+Woody is the planned French companion app for the TonyPi robot.
+
+The goal is to let the user say `Salut Woody`, then talk naturally in French.
+Woody should answer like a companion and execute safe robot commands when the
+user asks for movement, gestures, or dances.
+
+## Current Findings
+
+The robot already has the pieces we need:
+
+- main robot runtime: `/home/pi/TonyPi/TonyPi.py`
+- action runner: `hiwonder.ActionGroupControl`
+- JSON-RPC API: `/home/pi/TonyPi/RPCServer.py` on port `9030`
+- speech package: `/home/pi/large_models/speech_pkg`
+- OpenAI-compatible config: `/home/pi/large_models/config.py`
+- Cosmo deployment directory: `/home/pi/cosmo_robotics`
+
+The existing `WonderEchoPro` wake-word helper detects a hardware wake signal on
+`/dev/ttyUSB0`, but the inspected class does not expose a custom wake phrase
+setter. Because of that, the first Woody version uses a software wake phrase:
+it records short audio windows, transcribes them in French, and starts the
+companion session when it hears `Salut Woody`.
+
+## Dance Mapping
+
+HiWonder already provides synchronized dance actions and music in:
+
+`/home/pi/TonyPi/Functions/voice_interaction/sing_and_dance.py`
+
+The mapping is:
+
+| Dance index | Action group | Audio file |
+| --- | --- | --- |
+| `1` | `dance1` | `/home/pi/TonyPi/audio/16.wav` |
+| `2` | `dance2` | `/home/pi/TonyPi/audio/17.wav` |
+| `3` | `dance3` | `/home/pi/TonyPi/audio/18.wav` |
+| `4` | `dance4` | `/home/pi/TonyPi/audio/19.wav` |
+
+The Hiwonder RPC method `SingAndDance` uses the same script and accepts:
+
+- `1` to `4`: start the selected dance
+- `0`: stop the current dance and return to `stand`
+
+The local Woody app calls the same script instead of reimplementing the timing.
+
+## Initial Safe Action Catalog
+
+The first Woody catalog intentionally exposes a conservative subset of existing
+action groups:
+
+| Woody command | TonyPi action group | Meaning |
+| --- | --- | --- |
+| `stand` | `stand` | stand |
+| `stand_slow` | `stand_slow` | stand slowly |
+| `forward_step` | `go_forward_one_step` | one step forward |
+| `back_step` | `back_one_step` | one step back |
+| `turn_left` | `turn_left_fast` | turn left |
+| `turn_right` | `turn_right_fast` | turn right |
+| `left_move` | `left_move_fast` | move left |
+| `right_move` | `right_move_fast` | move right |
+| `wave` | `wave` | greet |
+| `bow` | `bow` | bow |
+| `squat` | `squat` | squat |
+| `sit_ups` | `sit_ups` | sit-ups |
+| `twist` | `twist` | twist |
+| `stepping` | `stepping` | step in place |
+| `left_kick` | `left_kick` | left kick |
+| `right_kick` | `right_kick` | right kick |
+| `left_shot` | `left_shot_fast` | left football shot |
+| `right_shot` | `right_shot_fast` | right football shot |
+| `wing_chun` | `wing_chun` | wing chun |
+| `celebrate` | `chest` | celebration |
+| `dance` | `dance1`..`dance4` | dance with music |
+
+More action groups exist, but they should be added after testing one by one.
+
+## Program Files
+
+- `woody_actions.py`: local action and dance catalog.
+- `woody_companion.py`: first companion app.
+
+## Running
+
+Deploy first:
+
+```bash
+./deploy.sh
+```
+
+Text mode, safest first test:
+
+```bash
+ssh pi@192.168.1.15 'cd /home/pi/cosmo_robotics && python3 woody_companion.py --text --dry-run'
+```
+
+Text mode with real actions:
+
+```bash
+ssh pi@192.168.1.15 'cd /home/pi/cosmo_robotics && python3 woody_companion.py --text'
+```
+
+Wake phrase mode without robot actions:
+
+```bash
+ssh pi@192.168.1.15 'cd /home/pi/cosmo_robotics && python3 woody_companion.py --dry-run'
+```
+
+Wake phrase mode with spoken replies:
+
+```bash
+ssh pi@192.168.1.15 'cd /home/pi/cosmo_robotics && python3 woody_companion.py --speak'
+```
+
+## Notes
+
+The first version uses `gpt-4o-mini` by default because the existing robot code
+already uses that model. The model can be changed without editing code:
+
+```bash
+WOODY_LLM_MODEL=gpt-5.5 python3 woody_companion.py --text
+```
+
+OpenAI's current guidance recommends the Responses API and GPT-5.5 for new
+agentic or multi-turn workflows, but this first implementation stays close to
+the robot's working OpenAI client style. A later version can migrate the planner
+to Responses API after basic robot behavior is validated.

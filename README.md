@@ -56,8 +56,14 @@ ssh pi@192.168.1.15 'cd /home/pi/cosmo_robotics && python3 cosmo_text_to_robot.p
 - `cosmo_command_parser.py`: command parsing only.
 - `cosmo_action_test.py`: direct action group smoke test.
 - `cosmo_asr_test.py`: audio recording and transcription smoke test.
+- `woody_companion.py`: first French companion app with `Salut Woody` software
+  wake phrase, dialogue planning, safe action execution, and dance support.
+- `woody_actions.py`: Woody action and dance capability catalog.
 - `deploy.sh`: rsync deployment to `/home/pi/cosmo_robotics`.
 - `run_robot.sh`: SSH helper to run `cosmo_voice_to_robot.py` on the robot.
 
 Files suffixed with `_WORKING_...` are snapshots kept from a known working robot
 state. Prefer editing the unsuffixed files.
+
+See [docs/woody-companion.md](docs/woody-companion.md) for the Woody design,
+safe action catalog, and dance/audio mapping.

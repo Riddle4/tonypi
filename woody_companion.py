@@ -60,6 +60,7 @@ LLM_MODEL = os.environ.get("WOODY_LLM_MODEL", "gpt-5.5")
 TRANSCRIBE_MODEL = os.environ.get("WOODY_TRANSCRIBE_MODEL", "gpt-4o-transcribe")
 TTS_MODEL = os.environ.get("WOODY_TTS_MODEL", "gpt-4o-mini-tts")
 TTS_VOICE = os.environ.get("WOODY_TTS_VOICE", "alloy")
+USER_NAME = os.environ.get("WOODY_USER_NAME", "Laurent")
 
 client = None
 active_dance_process = None
@@ -92,6 +93,7 @@ NUMBER_WORDS = {
 
 SYSTEM_PROMPT = f"""
 Tu es Woody, un compagnon robot TonyPi chaleureux, curieux et francophone.
+Ton interlocuteur principal s'appelle {USER_NAME}.
 
 Objectif:
 - Dialoguer naturellement en francais sur tous les sujets courants.
@@ -128,6 +130,7 @@ Regles:
 - Si l'utilisateur demande une danse precise 1, 2, 3 ou 4, respecte ce numero.
 - Si l'utilisateur dit stop ou arrete, mets "stop_motion": true.
 - Si l'utilisateur dit dormir, bonne nuit, ou au revoir, mets "sleep": true.
+- Si l'utilisateur demande comment il s'appelle, reponds qu'il s'appelle {USER_NAME}.
 - Pour avancer/reculer/tourner plusieurs fois, repete l'action mais limite avec max_repeat.
 - Apres une sequence de mouvement, ajoute "stand" si utile.
 - Refuse poliment les demandes dangereuses ou impossibles.
@@ -179,6 +182,20 @@ def fast_plan(user_text):
     if "comment tu t appelles" in normalized or "ton nom" in normalized:
         return {
             "reply": "Je m'appelle Woody.",
+            "actions": [],
+            "dance_index": None,
+            "sleep": False,
+            "fast": True,
+        }
+
+    if (
+        "comment je m appelle" in normalized
+        or "mon nom" in normalized
+        or "tu sais comment je m appelle" in normalized
+        or "tu connais mon prenom" in normalized
+    ):
+        return {
+            "reply": f"Tu t'appelles {USER_NAME}.",
             "actions": [],
             "dance_index": None,
             "sleep": False,

@@ -176,6 +176,15 @@ def fast_plan(user_text):
     if normalized in SLEEP_PHRASES:
         return {"reply": "D'accord, je retourne en veille.", "actions": [], "sleep": True}
 
+    if "comment tu t appelles" in normalized or "ton nom" in normalized:
+        return {
+            "reply": "Je m'appelle Woody.",
+            "actions": [],
+            "dance_index": None,
+            "sleep": False,
+            "fast": True,
+        }
+
     if normalized in STOP_PHRASES or any(phrase in normalized for phrase in STOP_PHRASES):
         return {
             "reply": "J'arrete tous les mouvements.",
@@ -544,17 +553,23 @@ def plan_turn(user_text, history):
 
     kwargs = {
         "model": LLM_MODEL,
-        "temperature": 0.4,
         "messages": messages,
         "response_format": {"type": "json_object"},
     }
+    if not LLM_MODEL.startswith("gpt-5"):
+        kwargs["temperature"] = 0.4
+
     try:
         response = get_client().chat.completions.create(**kwargs)
     except Exception as exc:
         message = str(exc).lower()
-        if "response_format" not in message and "json_object" not in message:
+        retryable_params = ("response_format", "json_object", "temperature")
+        if not any(param in message for param in retryable_params):
             raise
-        kwargs.pop("response_format", None)
+        if "response_format" in message or "json_object" in message:
+            kwargs.pop("response_format", None)
+        if "temperature" in message:
+            kwargs.pop("temperature", None)
         response = get_client().chat.completions.create(**kwargs)
 
     content = response.choices[0].message.content.strip()

@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import unicodedata
 import wave
@@ -34,7 +35,7 @@ except Exception:
     AGC = None
 
 
-APP_DIR = "/home/pi/cosmo_robotics"
+APP_DIR = os.environ.get("WOODY_APP_DIR", "/home/pi/cosmo_robotics")
 WAKE_AUDIO_FILE = os.path.join(APP_DIR, "woody_wake.wav")
 TURN_AUDIO_FILE = os.path.join(APP_DIR, "woody_turn.wav")
 REPLY_AUDIO_FILE = os.path.join(APP_DIR, "woody_reply.mp3")
@@ -67,6 +68,23 @@ gauche, tourne a droite, peux-tu me saluer, danse, danse la deuxieme danse,
 comment vas-tu, raconte-moi quelque chose, au revoir.
 Ignore les bruits de fond et ne traduis pas.
 """
+
+NUMBER_WORDS = {
+    "premier": 1,
+    "premiere": 1,
+    "un": 1,
+    "une": 1,
+    "deux": 2,
+    "deuxieme": 2,
+    "second": 2,
+    "seconde": 2,
+    "trois": 3,
+    "troisieme": 3,
+    "quatre": 4,
+    "quatrieme": 4,
+    "cinq": 5,
+    "cinquieme": 5,
+}
 
 
 SYSTEM_PROMPT = f"""
@@ -116,6 +134,76 @@ def contains_wake_phrase(text):
     aliases = os.environ.get("WOODY_WAKE_ALIASES")
     phrases = aliases.split(",") if aliases else DEFAULT_WAKE_ALIASES
     return any(normalize(phrase) in normalized for phrase in phrases)
+
+
+def extract_repeat(normalized, default=1, maximum=5):
+    for word, value in NUMBER_WORDS.items():
+        if re.search(rf"\b{word}\b", normalized):
+            return max(1, min(value, maximum))
+
+    match = re.search(r"\b([1-5])\b", normalized)
+    if match:
+        return max(1, min(int(match.group(1)), maximum))
+
+    return default
+
+
+def fast_plan(user_text):
+    """Return a deterministic plan for obvious robot commands."""
+    normalized = normalize(user_text)
+
+    if normalized in EXIT_PHRASES:
+        return {"reply": "D'accord, je retourne en veille.", "actions": [], "sleep": True}
+
+    if "danse" in normalized or "dancer" in normalized:
+        dance_index = extract_repeat(normalized, default=1, maximum=4)
+        return {
+            "reply": "Je lance la danse.",
+            "actions": [],
+            "dance_index": dance_index,
+            "sleep": False,
+            "fast": True,
+        }
+
+    checks = [
+        (("avance", "avancer", "devant"), "forward_step", "J'avance."),
+        (("recule", "recul", "arriere", "derriere"), "back_step", "Je recule."),
+        (("tourne a gauche", "gauche"), "turn_left", "Je tourne a gauche."),
+        (("tourne a droite", "droite"), "turn_right", "Je tourne a droite."),
+        (("salue", "saluer", "bonjour", "coucou"), "wave", "Salut !"),
+        (("incline", "courbette"), "bow", "Avec plaisir."),
+        (("squat", "accroup"), "squat", "Je fais un squat."),
+        (("abdo", "abdos"), "sit_ups", "C'est parti pour les abdos."),
+        (("marche sur place", "sur place"), "stepping", "Je marche sur place."),
+        (("tortille", "twist"), "twist", "Je me tortille."),
+        (("celebre", "celebration", "bravo"), "celebrate", "Je celebre."),
+        (("wing chun",), "wing_chun", "Mode wing chun."),
+        (("coup de pied gauche", "pied gauche"), "left_kick", "Coup de pied gauche."),
+        (("coup de pied droit", "pied droit"), "right_kick", "Coup de pied droit."),
+        (("tire gauche", "tir gauche"), "left_shot", "Tir du pied gauche."),
+        (("tire droit", "tir droit"), "right_shot", "Tir du pied droit."),
+        (("debout", "releve", "relever"), "stand", "Je me remets debout."),
+    ]
+
+    for triggers, action_name, reply in checks:
+        if any(trigger in normalized for trigger in triggers):
+            repeat = extract_repeat(
+                normalized,
+                default=1,
+                maximum=SAFE_ACTIONS[action_name]["max_repeat"],
+            )
+            actions = [{"name": action_name, "repeat": repeat}]
+            if SAFE_ACTIONS[action_name].get("movement") and action_name != "stand":
+                actions.append({"name": "stand", "repeat": 1})
+            return {
+                "reply": reply,
+                "actions": actions,
+                "dance_index": None,
+                "sleep": False,
+                "fast": True,
+            }
+
+    return None
 
 
 def get_client():
@@ -283,6 +371,14 @@ def speak(text, enabled=True):
     subprocess.run(["mpg123", "-q", REPLY_AUDIO_FILE], check=False)
 
 
+def speak_async(text, enabled=True):
+    if not enabled or not text:
+        return None
+    thread = threading.Thread(target=speak, args=(text, enabled), daemon=True)
+    thread.start()
+    return thread
+
+
 def clamp_repeat(action_name, repeat):
     try:
         repeat = int(repeat)
@@ -383,16 +479,19 @@ def execute_plan(plan, dry_run=False):
 
 
 def companion_turn(user_text, history, speak_enabled=True, dry_run=False):
-    normalized = normalize(user_text)
-    if normalized in EXIT_PHRASES:
-        plan = {"reply": "D'accord, je retourne en veille.", "actions": [], "sleep": True}
-    else:
-        plan = plan_turn(user_text, history)
+    plan = fast_plan(user_text) or plan_turn(user_text, history)
 
     reply = plan.get("reply") or "D'accord."
     print(f"Woody: {reply}")
-    speak(reply, enabled=speak_enabled)
-    execute_plan(plan, dry_run=dry_run)
+
+    has_physical_action = bool(plan.get("dance_index") or plan.get("actions"))
+    if has_physical_action:
+        voice_thread = speak_async(reply, enabled=speak_enabled)
+        execute_plan(plan, dry_run=dry_run)
+        if voice_thread:
+            voice_thread.join()
+    else:
+        speak(reply, enabled=speak_enabled)
 
     history.append({"role": "user", "content": user_text})
     history.append({"role": "assistant", "content": reply})

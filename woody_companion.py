@@ -37,6 +37,13 @@ TURN_AUDIO_FILE = os.path.join(APP_DIR, "woody_turn.wav")
 REPLY_AUDIO_FILE = os.path.join(APP_DIR, "woody_reply.mp3")
 
 WAKE_PHRASE = "salut woody"
+DEFAULT_WAKE_ALIASES = (
+    "salut woody",
+    "salut woodie",
+    "salut woudi",
+    "salut woogie",
+    "salut mon ami",
+)
 EXIT_PHRASES = {"stop", "arrete", "au revoir", "bonne nuit", "retourne dormir"}
 
 LLM_MODEL = os.environ.get("WOODY_LLM_MODEL", "gpt-4o-mini")
@@ -91,7 +98,9 @@ def normalize(text):
 
 def contains_wake_phrase(text):
     normalized = normalize(text)
-    return WAKE_PHRASE in normalized or "salut woodie" in normalized
+    aliases = os.environ.get("WOODY_WAKE_ALIASES")
+    phrases = aliases.split(",") if aliases else DEFAULT_WAKE_ALIASES
+    return any(normalize(phrase) in normalized for phrase in phrases)
 
 
 def get_client():
@@ -119,7 +128,7 @@ def record_audio(path, seconds):
         str(duration),
         path,
     ]
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, stderr=subprocess.DEVNULL)
 
 
 def transcribe_audio(path):
@@ -280,6 +289,7 @@ def voice_session(args):
 
 def software_wake_loop(args):
     print('Woody wake mode. Dis "Salut Woody" pour demarrer.')
+    print("Si la detection rate trop souvent, lance: python3 woody_companion.py --voice --speak")
     while True:
         try:
             record_audio(WAKE_AUDIO_FILE, args.wake_seconds)
@@ -300,9 +310,11 @@ def software_wake_loop(args):
 def main():
     parser = argparse.ArgumentParser(description="Woody companion app for TonyPi")
     parser.add_argument("--text", action="store_true", help="use typed input")
+    parser.add_argument("--voice", action="store_true", help="start voice session immediately")
+    parser.add_argument("--wake", action="store_true", help="wait for the software wake phrase")
     parser.add_argument("--speak", action="store_true", help="speak replies with TTS")
     parser.add_argument("--dry-run", action="store_true", help="do not run robot actions")
-    parser.add_argument("--wake-seconds", type=float, default=2.5)
+    parser.add_argument("--wake-seconds", type=float, default=4.0)
     parser.add_argument("--turn-seconds", type=float, default=5.0)
     args = parser.parse_args()
 
@@ -310,8 +322,10 @@ def main():
 
     if args.text:
         text_loop(args)
-    else:
+    elif args.wake:
         software_wake_loop(args)
+    else:
+        voice_session(args)
 
 
 if __name__ == "__main__":

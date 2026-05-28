@@ -19,9 +19,14 @@ The robot already has the pieces we need:
 
 The existing `WonderEchoPro` wake-word helper detects a hardware wake signal on
 `/dev/ttyUSB0`, but the inspected class does not expose a custom wake phrase
-setter. Because of that, the first Woody version uses a software wake phrase:
-it records short audio windows, transcribes them in French, and starts the
-companion session when it hears `Salut Woody`.
+setter. Because of that, Woody supports two voice modes:
+
+- direct voice mode, which starts listening immediately;
+- software wake mode, which records short audio windows, transcribes them in
+  French, and starts the companion session when it hears `Salut Woody`.
+
+Direct voice mode is recommended for first real-world tests because software
+wake phrase detection can mis-transcribe short noisy clips.
 
 ## Dance Mapping
 
@@ -104,13 +109,26 @@ ssh pi@192.168.1.15 'cd /home/pi/cosmo_robotics && python3 woody_companion.py --
 Wake phrase mode without robot actions:
 
 ```bash
-ssh pi@192.168.1.15 'cd /home/pi/cosmo_robotics && python3 woody_companion.py --dry-run'
+ssh pi@192.168.1.15 'cd /home/pi/cosmo_robotics && python3 woody_companion.py --wake --dry-run'
+```
+
+Direct voice mode with spoken replies:
+
+```bash
+ssh pi@192.168.1.15 'cd /home/pi/cosmo_robotics && python3 woody_companion.py --speak'
 ```
 
 Wake phrase mode with spoken replies:
 
 ```bash
-ssh pi@192.168.1.15 'cd /home/pi/cosmo_robotics && python3 woody_companion.py --speak'
+ssh pi@192.168.1.15 'cd /home/pi/cosmo_robotics && python3 woody_companion.py --wake --speak'
+```
+
+If `Salut Woody` is repeatedly transcribed as a nearby phrase, add temporary
+aliases:
+
+```bash
+WOODY_WAKE_ALIASES='salut woody,salut mon ami' python3 woody_companion.py --wake --speak
 ```
 
 ## Notes

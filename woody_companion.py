@@ -5,13 +5,16 @@ Run on the robot from /home/pi/cosmo_robotics after deployment.
 """
 
 import argparse
+import array
 import json
+import math
 import os
 import re
 import subprocess
 import sys
 import time
 import unicodedata
+import wave
 
 from woody_actions import DANCE_ROUTINES, DANCE_SCRIPT, SAFE_ACTIONS, action_prompt_catalog
 
@@ -38,6 +41,8 @@ REPLY_AUDIO_FILE = os.path.join(APP_DIR, "woody_reply.mp3")
 
 DEFAULT_AUDIO_DEVICE = os.environ.get("WOODY_AUDIO_DEVICE", "hw:2,0")
 DEFAULT_AUDIO_RATE = int(os.environ.get("WOODY_AUDIO_RATE", "48000"))
+DEFAULT_AUDIO_CHANNELS = int(os.environ.get("WOODY_AUDIO_CHANNELS", "2"))
+DEFAULT_VOICE_THRESHOLD = int(os.environ.get("WOODY_VOICE_THRESHOLD", "500"))
 WAKE_PHRASE = "salut woody"
 DEFAULT_WAKE_ALIASES = (
     "salut woody",
@@ -139,6 +144,111 @@ def record_audio(path, seconds, device=DEFAULT_AUDIO_DEVICE, rate=DEFAULT_AUDIO_
         path,
     ]
     subprocess.run(cmd, check=True, stderr=subprocess.DEVNULL)
+
+
+def write_wav(path, audio_bytes, rate=DEFAULT_AUDIO_RATE, channels=DEFAULT_AUDIO_CHANNELS):
+    with wave.open(path, "wb") as wav:
+        wav.setnchannels(channels)
+        wav.setsampwidth(2)
+        wav.setframerate(rate)
+        wav.writeframes(audio_bytes)
+
+
+def rms_pcm16(audio_bytes):
+    if not audio_bytes:
+        return 0
+    samples = array.array("h")
+    samples.frombytes(audio_bytes)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    if not samples:
+        return 0
+    square_sum = sum(sample * sample for sample in samples)
+    return int(math.sqrt(square_sum / len(samples)))
+
+
+def record_until_silence(
+    path,
+    max_seconds,
+    device=DEFAULT_AUDIO_DEVICE,
+    rate=DEFAULT_AUDIO_RATE,
+    channels=DEFAULT_AUDIO_CHANNELS,
+    threshold=DEFAULT_VOICE_THRESHOLD,
+    silence_seconds=0.8,
+    start_timeout=6.0,
+    chunk_ms=100,
+):
+    """Record until speech is followed by a short silence."""
+    chunk_frames = max(1, int(rate * chunk_ms / 1000))
+    chunk_bytes = chunk_frames * channels * 2
+    cmd = [
+        "arecord",
+        "-D",
+        device,
+        "-f",
+        "S16_LE",
+        "-r",
+        str(rate),
+        "-c",
+        str(channels),
+        "-t",
+        "raw",
+        "-q",
+    ]
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+
+    chunks = []
+    started = False
+    start_time = time.monotonic()
+    speech_start = None
+    last_voice = None
+
+    try:
+        while True:
+            if proc.stdout is None:
+                break
+
+            chunk = proc.stdout.read(chunk_bytes)
+            if not chunk:
+                break
+
+            now = time.monotonic()
+            chunks.append(chunk)
+            rms = rms_pcm16(chunk)
+
+            if rms >= threshold:
+                if not started:
+                    started = True
+                    speech_start = now
+                    print("[woody] voix detectee")
+                last_voice = now
+
+            elapsed = now - start_time
+            if started and last_voice is not None:
+                enough_voice = speech_start is None or now - speech_start >= 0.35
+                if enough_voice and now - last_voice >= silence_seconds:
+                    break
+
+            if not started and elapsed >= start_timeout:
+                break
+
+            if elapsed >= max_seconds:
+                break
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+    audio_bytes = b"".join(chunks)
+    write_wav(path, audio_bytes, rate=rate, channels=channels)
+    return started, len(audio_bytes) / float(rate * channels * 2)
 
 
 def transcribe_audio(path):
@@ -303,8 +413,20 @@ def voice_session(args):
     history = []
     speak("Je suis la. Que veux-tu faire ?", enabled=args.speak)
     while True:
-        print(f"[woody] parle maintenant ({args.turn_seconds:.0f}s)...")
-        record_audio(TURN_AUDIO_FILE, args.turn_seconds)
+        print("[woody] parle maintenant...")
+        started, duration = record_until_silence(
+            TURN_AUDIO_FILE,
+            args.turn_seconds,
+            threshold=args.voice_threshold,
+            silence_seconds=args.silence_seconds,
+            start_timeout=args.start_timeout,
+        )
+        print(f"[woody] audio capture: {duration:.1f}s")
+        if not started:
+            print("[woody] aucune voix detectee")
+            speak("Je n'ai pas entendu ta voix.", enabled=args.speak)
+            continue
+
         text = transcribe_audio(TURN_AUDIO_FILE)
         print(f"Vous: {text}")
 
@@ -350,7 +472,10 @@ def main():
     parser.add_argument("--speak", action="store_true", help="speak replies with TTS")
     parser.add_argument("--dry-run", action="store_true", help="do not run robot actions")
     parser.add_argument("--wake-seconds", type=float, default=4.0)
-    parser.add_argument("--turn-seconds", type=float, default=7.0)
+    parser.add_argument("--turn-seconds", type=float, default=10.0)
+    parser.add_argument("--silence-seconds", type=float, default=0.8)
+    parser.add_argument("--start-timeout", type=float, default=6.0)
+    parser.add_argument("--voice-threshold", type=int, default=DEFAULT_VOICE_THRESHOLD)
     args = parser.parse_args()
 
     os.makedirs(APP_DIR, exist_ok=True)

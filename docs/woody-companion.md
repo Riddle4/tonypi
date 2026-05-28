@@ -125,6 +125,25 @@ recording window:
 python3 woody_companion.py --speak --turn-seconds 9
 ```
 
+Voice mode stops automatically after the end of speech. `--turn-seconds` is only
+the maximum recording duration. If Woody cuts too early or waits too long, tune:
+
+```bash
+python3 woody_companion.py --speak --silence-seconds 1.1
+```
+
+If it does not detect your voice, lower the threshold:
+
+```bash
+python3 woody_companion.py --speak --voice-threshold 350
+```
+
+If it starts recording from room noise, raise the threshold:
+
+```bash
+python3 woody_companion.py --speak --voice-threshold 800
+```
+
 If the microphone device changes, override it without editing code:
 
 ```bash

@@ -14,6 +14,7 @@ rsync -avz \
   --exclude "woody_wake.wav" \
   --exclude "woody_turn.wav" \
   --exclude "woody_reply.mp3" \
+  --exclude "memory/private/woody_secrets.env" \
   ./ "$ROBOT_HOST:$REMOTE_DIR/"
 
 echo "Done."

@@ -72,6 +72,8 @@ USER_NAME = os.environ.get("WOODY_USER_NAME", "Laurent")
 API_TIMEOUT = float(os.environ.get("WOODY_API_TIMEOUT", "20"))
 XAI_API_TIMEOUT = float(os.environ.get("WOODY_XAI_API_TIMEOUT", "30"))
 SPEECH_TIMEOUT = float(os.environ.get("WOODY_SPEECH_TIMEOUT", "8"))
+LISTEN_COOLDOWN = float(os.environ.get("WOODY_LISTEN_COOLDOWN", "0.6"))
+MIN_VOICE_PEAK_MARGIN = int(os.environ.get("WOODY_MIN_VOICE_PEAK_MARGIN", "150"))
 
 client = None
 xai_client = None
@@ -314,6 +316,29 @@ def needs_live_search(text):
         "cours de",
     )
     return any(marker in normalized for marker in markers)
+
+
+def min_voice_peak(threshold):
+    return threshold + MIN_VOICE_PEAK_MARGIN
+
+
+def is_self_or_noise_transcription(text, max_rms, threshold):
+    normalized = normalize(text)
+    min_peak = min_voice_peak(threshold)
+
+    self_phrases = (
+        "je suis la que veux tu faire",
+        "je n ai pas entendu ta voix",
+        "je n ai pas bien entendu",
+        "salut je suis woody",
+    )
+    if any(phrase in normalized for phrase in self_phrases):
+        return True, "self-speech"
+
+    if max_rms < min_peak:
+        return True, f"weak audio peak {max_rms} < {min_peak}"
+
+    return False, ""
 
 
 def extract_repeat(normalized, default=1, maximum=5):
@@ -981,8 +1006,6 @@ def voice_session(args):
     history = []
     mode = "normal"
     print("[woody] voice session starting", flush=True)
-    speak_async("Je suis la. Que veux-tu faire ?", enabled=args.speak)
-    time.sleep(0.2)
     while True:
         print("[woody] parle maintenant...", flush=True)
         started, duration, max_rms = record_until_silence(
@@ -992,20 +1015,33 @@ def voice_session(args):
             silence_seconds=args.silence_seconds,
             start_timeout=args.start_timeout,
         )
-        print(f"[woody] audio capture: {duration:.1f}s")
+        print(
+            f"[woody] audio capture: {duration:.1f}s "
+            f"(niveau max {max_rms}, seuil {args.voice_threshold})"
+        )
         if not started:
-            print(
-                "[woody] aucune voix detectee "
-                f"(niveau max {max_rms}, seuil {args.voice_threshold})"
-            )
-            speak("Je n'ai pas entendu ta voix.", enabled=args.speak)
+            print("[woody] aucune voix detectee")
+            continue
+
+        min_peak = min_voice_peak(args.voice_threshold)
+        if max_rms < min_peak:
+            print(f"[woody] audio trop faible ignore: {max_rms} < {min_peak}")
             continue
 
         text = transcribe_audio(TURN_AUDIO_FILE)
         print(f"Vous: {text}")
 
         if not text:
-            speak("Je n'ai pas bien entendu.", enabled=args.speak)
+            print("[woody] transcription vide ignoree")
+            continue
+
+        ignore_text, reason = is_self_or_noise_transcription(
+            text,
+            max_rms=max_rms,
+            threshold=args.voice_threshold,
+        )
+        if ignore_text:
+            print(f"[woody] transcription ignoree: {reason}")
             continue
 
         should_sleep, mode = companion_turn(
@@ -1015,6 +1051,7 @@ def voice_session(args):
             dry_run=args.dry_run,
             mode=mode,
         )
+        time.sleep(LISTEN_COOLDOWN)
         if should_sleep:
             break
 

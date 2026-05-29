@@ -69,6 +69,8 @@ TRANSCRIBE_MODEL = os.environ.get("WOODY_TRANSCRIBE_MODEL", "gpt-4o-transcribe")
 TTS_MODEL = os.environ.get("WOODY_TTS_MODEL", "gpt-4o-mini-tts")
 TTS_VOICE = os.environ.get("WOODY_TTS_VOICE", "alloy")
 USER_NAME = os.environ.get("WOODY_USER_NAME", "Laurent")
+API_TIMEOUT = float(os.environ.get("WOODY_API_TIMEOUT", "20"))
+XAI_API_TIMEOUT = float(os.environ.get("WOODY_XAI_API_TIMEOUT", "30"))
 
 client = None
 xai_client = None
@@ -462,7 +464,7 @@ def get_client():
     if client is None:
         from openai import OpenAI
 
-        client = OpenAI(api_key=llm_api_key, base_url=llm_base_url)
+        client = OpenAI(api_key=llm_api_key, base_url=llm_base_url, timeout=API_TIMEOUT)
     return client
 
 
@@ -476,7 +478,11 @@ def get_xai_client():
             raise RuntimeError(
                 f"XAI_API_KEY is missing. Add it to {SECRETS_FILE} or export it."
             )
-        xai_client = OpenAI(api_key=api_key, base_url=XAI_BASE_URL)
+        xai_client = OpenAI(
+            api_key=api_key,
+            base_url=XAI_BASE_URL,
+            timeout=XAI_API_TIMEOUT,
+        )
     return xai_client
 
 
@@ -627,13 +633,16 @@ def speak(text, enabled=True):
     if not enabled or not text:
         return
 
-    response = get_client().audio.speech.create(
-        model=TTS_MODEL,
-        voice=TTS_VOICE,
-        input=text,
-    )
-    response.write_to_file(REPLY_AUDIO_FILE)
-    subprocess.run(["mpg123", "-q", REPLY_AUDIO_FILE], check=False)
+    try:
+        response = get_client().audio.speech.create(
+            model=TTS_MODEL,
+            voice=TTS_VOICE,
+            input=text,
+        )
+        response.write_to_file(REPLY_AUDIO_FILE)
+        subprocess.run(["mpg123", "-q", REPLY_AUDIO_FILE], check=False)
+    except Exception as exc:
+        print(f"[woody] speech unavailable: {exc}")
 
 
 def speak_async(text, enabled=True):
@@ -894,9 +903,11 @@ def text_loop(args):
 def voice_session(args):
     history = []
     mode = "normal"
-    speak("Je suis la. Que veux-tu faire ?", enabled=args.speak)
+    print("[woody] voice session starting", flush=True)
+    speak_async("Je suis la. Que veux-tu faire ?", enabled=args.speak)
+    time.sleep(0.2)
     while True:
-        print("[woody] parle maintenant...")
+        print("[woody] parle maintenant...", flush=True)
         started, duration = record_until_silence(
             TURN_AUDIO_FILE,
             args.turn_seconds,

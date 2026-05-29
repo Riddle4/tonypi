@@ -165,6 +165,8 @@ Objectif:
   explications, conseils simples, conversation.
 - Detecter les commandes physiques seulement quand l'utilisateur demande
   explicitement un mouvement, une posture, un salut, ou une danse.
+- En cas de doute entre conversation et action physique, choisis toujours la
+  conversation et laisse "actions" vide.
 - Ne jamais inventer de mouvement hors catalogue.
 - Repondre naturellement. Pour une conversation generale, tu peux donner une
   reponse utile de quelques phrases.
@@ -186,6 +188,9 @@ Schema:
 Regles:
 - Par defaut, l'utilisateur veut discuter: reponds dans "reply", laisse
   "actions" vide et "dance_index" a null.
+- Ne declenche une action physique que si la demande est explicite: "avance",
+  "recule", "tourne a gauche", "danse", "fais coucou", "salue-moi", "stop".
+- Ne transforme jamais un mot isole ou une phrase ambigue en action physique.
 - Ne propose pas de danse pour remplacer une reponse generale.
 - Si l'utilisateur demande une blague, raconte une blague.
 - Si l'utilisateur demande une recette, donne une recette courte.
@@ -323,6 +328,47 @@ def extract_repeat(normalized, default=1, maximum=5):
     return default
 
 
+def is_explicit_physical_command(normalized):
+    if normalized in STOP_PHRASES or any(phrase in normalized for phrase in STOP_PHRASES):
+        return True
+
+    explicit_patterns = (
+        r"\bavance\b",
+        r"\bavancer\b",
+        r"\brecule\b",
+        r"\breculer\b",
+        r"\btourne a gauche\b",
+        r"\btourne a droite\b",
+        r"\bfais coucou\b",
+        r"\bfais moi coucou\b",
+        r"\bsalue moi\b",
+        r"\bsalue\b",
+        r"\bsaluer\b",
+        r"\bdanse\b",
+        r"\bdanser\b",
+        r"\bfais une danse\b",
+        r"\bincline toi\b",
+        r"\bfais une courbette\b",
+        r"\bfais un squat\b",
+        r"\bsquat\b",
+        r"\bfais des abdos\b",
+        r"\babdos\b",
+        r"\bmarche sur place\b",
+        r"\btortille toi\b",
+        r"\bfais le twist\b",
+        r"\bcelebre\b",
+        r"\bfais wing chun\b",
+        r"\bcoup de pied gauche\b",
+        r"\bcoup de pied droit\b",
+        r"\btir gauche\b",
+        r"\btir droit\b",
+        r"\bremets toi debout\b",
+        r"\bmet toi debout\b",
+        r"\breleve toi\b",
+    )
+    return any(re.search(pattern, normalized) for pattern in explicit_patterns)
+
+
 def fast_plan(user_text):
     """Return a deterministic plan for obvious robot commands."""
     normalized = normalize(user_text)
@@ -363,7 +409,10 @@ def fast_plan(user_text):
             "fast": True,
         }
 
-    if "danse" in normalized or "dancer" in normalized:
+    if not is_explicit_physical_command(normalized):
+        return None
+
+    if re.search(r"\b(danse|danser|fais une danse)\b", normalized):
         dance_index = extract_repeat(normalized, default=1, maximum=4)
         return {
             "reply": "Je lance la danse.",
@@ -374,27 +423,31 @@ def fast_plan(user_text):
         }
 
     checks = [
-        (("avance", "avancer", "devant"), "forward_step", "J'avance."),
-        (("recule", "recul", "arriere", "derriere"), "back_step", "Je recule."),
-        (("tourne a gauche", "gauche"), "turn_left", "Je tourne a gauche."),
-        (("tourne a droite", "droite"), "turn_right", "Je tourne a droite."),
-        (("salue", "saluer", "bonjour", "coucou"), "wave", "Salut !"),
-        (("incline", "courbette"), "bow", "Avec plaisir."),
-        (("squat", "accroup"), "squat", "Je fais un squat."),
-        (("abdo", "abdos"), "sit_ups", "C'est parti pour les abdos."),
-        (("marche sur place", "sur place"), "stepping", "Je marche sur place."),
-        (("tortille", "twist"), "twist", "Je me tortille."),
-        (("celebre", "celebration", "bravo"), "celebrate", "Je celebre."),
-        (("wing chun",), "wing_chun", "Mode wing chun."),
-        (("coup de pied gauche", "pied gauche"), "left_kick", "Coup de pied gauche."),
-        (("coup de pied droit", "pied droit"), "right_kick", "Coup de pied droit."),
-        (("tire gauche", "tir gauche"), "left_shot", "Tir du pied gauche."),
-        (("tire droit", "tir droit"), "right_shot", "Tir du pied droit."),
-        (("debout", "releve", "relever"), "stand", "Je me remets debout."),
+        ((r"\bavance\b", r"\bavancer\b"), "forward_step", "J'avance."),
+        ((r"\brecule\b", r"\breculer\b"), "back_step", "Je recule."),
+        ((r"\btourne a gauche\b",), "turn_left", "Je tourne a gauche."),
+        ((r"\btourne a droite\b",), "turn_right", "Je tourne a droite."),
+        (
+            (r"\bfais coucou\b", r"\bfais moi coucou\b", r"\bsalue moi\b", r"\bsalue\b", r"\bsaluer\b"),
+            "wave",
+            "Salut !",
+        ),
+        ((r"\bincline toi\b", r"\bfais une courbette\b"), "bow", "Avec plaisir."),
+        ((r"\bfais un squat\b", r"\bsquat\b"), "squat", "Je fais un squat."),
+        ((r"\bfais des abdos\b", r"\babdos\b"), "sit_ups", "C'est parti pour les abdos."),
+        ((r"\bmarche sur place\b",), "stepping", "Je marche sur place."),
+        ((r"\btortille toi\b", r"\bfais le twist\b"), "twist", "Je me tortille."),
+        ((r"\bcelebre\b",), "celebrate", "Je celebre."),
+        ((r"\bfais wing chun\b", r"\bwing chun\b"), "wing_chun", "Mode wing chun."),
+        ((r"\bcoup de pied gauche\b",), "left_kick", "Coup de pied gauche."),
+        ((r"\bcoup de pied droit\b",), "right_kick", "Coup de pied droit."),
+        ((r"\btir gauche\b",), "left_shot", "Tir du pied gauche."),
+        ((r"\btir droit\b",), "right_shot", "Tir du pied droit."),
+        ((r"\bremets toi debout\b", r"\bmet toi debout\b", r"\breleve toi\b"), "stand", "Je me remets debout."),
     ]
 
-    for triggers, action_name, reply in checks:
-        if any(trigger in normalized for trigger in triggers):
+    for patterns, action_name, reply in checks:
+        if any(re.search(pattern, normalized) for pattern in patterns):
             repeat = extract_repeat(
                 normalized,
                 default=1,
@@ -452,11 +505,16 @@ def is_general_question(user_text):
 
 
 def sanitize_plan(user_text, plan):
+    normalized = normalize(user_text)
     if is_general_question(user_text):
         plan["actions"] = []
         plan["dance_index"] = None
         plan["stop_motion"] = False
         plan["sleep"] = False
+    elif not is_explicit_physical_command(normalized):
+        plan["actions"] = []
+        plan["dance_index"] = None
+        plan["stop_motion"] = False
     return plan
 
 

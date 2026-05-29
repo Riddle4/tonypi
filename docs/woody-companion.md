@@ -82,6 +82,10 @@ action groups:
 
 More action groups exist, but they should be added after testing one by one.
 
+Woody only executes physical actions when the request is explicit. Ambiguous
+phrases such as "bonjour", "a gauche", or "devant" are treated as conversation,
+not robot commands.
+
 ## Program Files
 
 - `woody_actions.py`: local action and dance catalog.

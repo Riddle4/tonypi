@@ -128,8 +128,13 @@ TRANSCRIPTION_PROMPT = """
 Transcris en francais une commande adressee a Woody, un petit robot compagnon.
 Les phrases possibles incluent: salut Woody, avance d'un pas, recule, tourne a
 gauche, tourne a droite, peux-tu me saluer, danse, danse la deuxieme danse,
-comment vas-tu, raconte-moi quelque chose, au revoir.
-Ignore les bruits de fond et ne traduis pas.
+comment vas-tu, raconte-moi quelque chose, au revoir, est-ce que tu m'entends,
+est-ce que tu peux passer en mode Dark Woody, redeviens Woody.
+Attention aux confusions frequentes:
+- "est-ce que tu m'entends" ne doit pas devenir "balance droite".
+- "passe en mode Dark Woody" ne doit pas devenir "passes un medecin".
+Ignore les bruits de fond, ne traduis pas, et ne devine pas de commande robot
+si les mots ne sont pas clairs.
 """
 
 NUMBER_WORDS = {
@@ -934,7 +939,71 @@ def execute_plan(plan, dry_run=False):
         run_action(name, repeat, dry_run=dry_run)
 
 
-def companion_turn(user_text, history, speak_enabled=True, dry_run=False, mode="normal"):
+def describe_physical_plan(plan):
+    if plan.get("stop_motion"):
+        return "arreter tous les mouvements"
+    if plan.get("dance_index"):
+        return f"lancer la danse {plan.get('dance_index')}"
+
+    action_names = [action.get("name") for action in plan.get("actions", [])]
+    labels = {
+        "forward_step": "avancer",
+        "back_step": "reculer",
+        "turn_left": "tourner a gauche",
+        "turn_right": "tourner a droite",
+        "wave": "saluer",
+        "bow": "faire une courbette",
+        "squat": "faire un squat",
+        "sit_ups": "faire des abdos",
+        "stepping": "marcher sur place",
+        "twist": "faire le twist",
+        "celebrate": "celebrer",
+        "wing_chun": "faire wing chun",
+        "left_kick": "donner un coup de pied gauche",
+        "right_kick": "donner un coup de pied droit",
+        "left_shot": "faire un tir gauche",
+        "right_shot": "faire un tir droit",
+        "stand": "se remettre debout",
+    }
+    readable = [labels.get(name, name) for name in action_names if name and name != "stand"]
+    if not readable and "stand" in action_names:
+        readable = [labels["stand"]]
+    return ", puis ".join(readable) or "executer une action"
+
+
+def confirmation_is_yes(text):
+    normalized = normalize(text)
+    yes_patterns = (
+        r"\boui\b",
+        r"\bconfirme\b",
+        r"\bvas y\b",
+        r"\bd accord\b",
+        r"\bexecute\b",
+        r"\bfais le\b",
+        r"\bfais la\b",
+    )
+    no_patterns = (
+        r"\bnon\b",
+        r"\bannule\b",
+        r"\bn annule\b",
+        r"\bne bouge pas\b",
+        r"\bstop\b",
+        r"\barrete\b",
+    )
+    if any(re.search(pattern, normalized) for pattern in no_patterns):
+        return False
+    return any(re.search(pattern, normalized) for pattern in yes_patterns)
+
+
+def companion_turn(
+    user_text,
+    history,
+    speak_enabled=True,
+    dry_run=False,
+    mode="normal",
+    confirm_physical=False,
+    confirm_callback=None,
+):
     requested_mode = detect_personality_switch(user_text)
     if requested_mode:
         mode = requested_mode
@@ -972,6 +1041,22 @@ def companion_turn(user_text, history, speak_enabled=True, dry_run=False, mode="
     has_physical_action = bool(
         plan.get("stop_motion") or plan.get("dance_index") or plan.get("actions")
     )
+    needs_confirmation = bool(
+        confirm_physical
+        and has_physical_action
+        and not plan.get("stop_motion")
+        and confirm_callback is not None
+    )
+    if needs_confirmation:
+        action_description = describe_physical_plan(plan)
+        if not confirm_callback(action_description):
+            reply = "D'accord, je ne bouge pas."
+            print(f"Woody: {reply}")
+            speak(reply, enabled=speak_enabled)
+            history.append({"role": "user", "content": user_text})
+            history.append({"role": "assistant", "content": reply})
+            return False, mode
+
     if has_physical_action:
         voice_thread = speak_async(reply, enabled=speak_enabled)
         execute_plan(plan, dry_run=dry_run)
@@ -999,7 +1084,51 @@ def text_loop(args):
             speak_enabled=args.speak,
             dry_run=args.dry_run,
             mode=mode,
+            confirm_physical=False,
         )
+
+
+def record_confirmation(args, action_description):
+    prompt = f"J'ai compris: {action_description}. Tu confirmes ?"
+    print(f"Woody: {prompt}")
+    speak(prompt, enabled=args.speak)
+    time.sleep(LISTEN_COOLDOWN)
+
+    started, duration, max_rms = record_until_silence(
+        TURN_AUDIO_FILE,
+        max_seconds=4.0,
+        threshold=args.voice_threshold,
+        silence_seconds=args.silence_seconds,
+        start_timeout=3.0,
+    )
+    print(
+        f"[woody] confirmation capture: {duration:.1f}s "
+        f"(niveau max {max_rms}, seuil {args.voice_threshold})"
+    )
+    if not started:
+        print("[woody] confirmation absente")
+        return False
+
+    min_peak = min_voice_peak(args.voice_threshold)
+    if max_rms < min_peak:
+        print(f"[woody] confirmation trop faible ignoree: {max_rms} < {min_peak}")
+        return False
+
+    text = transcribe_audio(TURN_AUDIO_FILE)
+    print(f"Confirmation: {text}")
+    if not text:
+        return False
+
+    ignore_text, reason = is_self_or_noise_transcription(
+        text,
+        max_rms=max_rms,
+        threshold=args.voice_threshold,
+    )
+    if ignore_text:
+        print(f"[woody] confirmation ignoree: {reason}")
+        return False
+
+    return confirmation_is_yes(text)
 
 
 def voice_session(args):
@@ -1050,6 +1179,11 @@ def voice_session(args):
             speak_enabled=args.speak,
             dry_run=args.dry_run,
             mode=mode,
+            confirm_physical=args.confirm_actions,
+            confirm_callback=lambda action_description: record_confirmation(
+                args,
+                action_description,
+            ),
         )
         time.sleep(LISTEN_COOLDOWN)
         if should_sleep:
@@ -1083,11 +1217,18 @@ def main():
     parser.add_argument("--wake", action="store_true", help="wait for the software wake phrase")
     parser.add_argument("--speak", action="store_true", help="speak replies with TTS")
     parser.add_argument("--dry-run", action="store_true", help="do not run robot actions")
+    parser.add_argument(
+        "--no-confirm-actions",
+        action="store_false",
+        dest="confirm_actions",
+        help="execute physical actions immediately in voice mode",
+    )
     parser.add_argument("--wake-seconds", type=float, default=4.0)
     parser.add_argument("--turn-seconds", type=float, default=10.0)
     parser.add_argument("--silence-seconds", type=float, default=0.8)
     parser.add_argument("--start-timeout", type=float, default=6.0)
     parser.add_argument("--voice-threshold", type=int, default=DEFAULT_VOICE_THRESHOLD)
+    parser.set_defaults(confirm_actions=True)
     args = parser.parse_args()
 
     os.makedirs(APP_DIR, exist_ok=True)

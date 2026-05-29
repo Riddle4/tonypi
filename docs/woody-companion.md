@@ -108,6 +108,45 @@ help Woody remember Laurent's background, preferences, family context, projects,
 and sensitive topics, while staying discreet unless Laurent brings up those
 topics himself.
 
+## Personalities and Grok
+
+Woody has two conversational personalities:
+
+- normal Woody: OpenAI `gpt-4o`, warm, structured, fast, and used by default;
+- Dark Woody: xAI Grok, more incisive, sarcastic, rebellious, but still loyal
+  and kind underneath.
+
+Switch personality by saying:
+
+```text
+Active Dark Woody.
+Redeviens Woody.
+Passe en mode normal.
+```
+
+Questions that look time-sensitive, such as news, weather, recent events, web
+research, current prices, or "today" questions, are routed to Grok with xAI
+Web Search when an xAI key is available.
+
+Add the xAI key in the private secrets file:
+
+```bash
+nano /home/pi/cosmo_robotics/memory/private/woody_secrets.env
+```
+
+Then add:
+
+```bash
+XAI_API_KEY=xai-your-key-here
+```
+
+This file is ignored by Git and loaded automatically when Woody starts. You can
+also choose another Grok model without editing code:
+
+```bash
+WOODY_XAI_MODEL=grok-4.3 python3 woody_companion.py --speak
+```
+
 ## Running
 
 Deploy first:

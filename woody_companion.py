@@ -43,6 +43,8 @@ REPLY_AUDIO_FILE = os.path.join(APP_DIR, "woody_reply.mp3")
 DEFAULT_MEMORY_FILE = os.path.join(APP_DIR, "memory", "private", "laurent_bio.md")
 MEMORY_FILE = os.environ.get("WOODY_MEMORY_FILE", DEFAULT_MEMORY_FILE)
 MAX_MEMORY_CHARS = int(os.environ.get("WOODY_MEMORY_MAX_CHARS", "12000"))
+DEFAULT_SECRETS_FILE = os.path.join(APP_DIR, "memory", "private", "woody_secrets.env")
+SECRETS_FILE = os.environ.get("WOODY_SECRETS_FILE", DEFAULT_SECRETS_FILE)
 
 DEFAULT_AUDIO_DEVICE = os.environ.get("WOODY_AUDIO_DEVICE", "hw:2,0")
 DEFAULT_AUDIO_RATE = int(os.environ.get("WOODY_AUDIO_RATE", "48000"))
@@ -61,13 +63,40 @@ SLEEP_PHRASES = {"au revoir", "bonne nuit", "retourne dormir"}
 EXIT_PHRASES = STOP_PHRASES | SLEEP_PHRASES
 
 LLM_MODEL = os.environ.get("WOODY_LLM_MODEL", "gpt-4o")
+XAI_MODEL = os.environ.get("WOODY_XAI_MODEL", "grok-4.3")
+XAI_BASE_URL = os.environ.get("XAI_BASE_URL", "https://api.x.ai/v1")
 TRANSCRIBE_MODEL = os.environ.get("WOODY_TRANSCRIBE_MODEL", "gpt-4o-transcribe")
 TTS_MODEL = os.environ.get("WOODY_TTS_MODEL", "gpt-4o-mini-tts")
 TTS_VOICE = os.environ.get("WOODY_TTS_VOICE", "alloy")
 USER_NAME = os.environ.get("WOODY_USER_NAME", "Laurent")
 
 client = None
+xai_client = None
 active_dance_process = None
+
+
+def load_env_file(path):
+    if not path or not os.path.exists(path):
+        return
+
+    try:
+        with open(path, "r", encoding="utf-8") as env_file:
+            for line in env_file:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except Exception as exc:
+        print(f"[woody] secrets file unavailable: {exc}")
+
+
+load_env_file(SECRETS_FILE)
+XAI_MODEL = os.environ.get("WOODY_XAI_MODEL", XAI_MODEL)
+XAI_BASE_URL = os.environ.get("XAI_BASE_URL", XAI_BASE_URL)
 
 
 def load_private_memory():
@@ -176,6 +205,41 @@ Exemples:
   JSON: {{"reply":"Je lance la danse.","actions":[],"dance_index":2,"sleep":false}}
 """
 
+DARK_WOODY_PROMPT = f"""
+Tu es Dark Woody, l'autre personnalite de Woody.
+Tu parles en francais avec {USER_NAME}.
+
+Memoire privee sur {USER_NAME}:
+{PRIVATE_MEMORY or "Aucune memoire privee chargee."}
+
+Style:
+- Tu es plus incisif, rebelle, sarcastique et joueur que Woody.
+- Tu peux challenger {USER_NAME}, relever ses contradictions, poser des
+  questions qui derangent et te moquer gentiment des idees molles.
+- Tu restes attachant, loyal et utile. Tu ne deviens jamais cruel, humiliant,
+  haineux, violent ou gratuitement blessant.
+- Tu gardes les reponses assez courtes pour une conversation vocale.
+- Si tu utilises des informations recentes, dis clairement quand quelque chose
+  peut changer avec le temps.
+
+Important:
+- Tu ne controles pas directement le corps du robot. Les mouvements sont geres
+  par le programme principal.
+- Pour les sujets intimes de {USER_NAME}, sois piquant avec tendresse, pas
+  intrusif. Ne force pas les blessures personnelles dans la conversation.
+"""
+
+GROK_WOODY_PROMPT = f"""
+Tu es Woody, compagnon robot francophone de {USER_NAME}.
+
+Memoire privee sur {USER_NAME}:
+{PRIVATE_MEMORY or "Aucune memoire privee chargee."}
+
+Reponds en francais, naturellement, avec clarte et chaleur. Tu es utilise ici
+pour des questions qui peuvent demander des informations recentes ou une
+recherche Internet. Garde les reponses courtes pour la voix.
+"""
+
 
 def normalize(text):
     text = text.lower().strip()
@@ -190,6 +254,58 @@ def contains_wake_phrase(text):
     aliases = os.environ.get("WOODY_WAKE_ALIASES")
     phrases = aliases.split(",") if aliases else DEFAULT_WAKE_ALIASES
     return any(normalize(phrase) in normalized for phrase in phrases)
+
+
+def detect_personality_switch(text):
+    normalized = normalize(text)
+
+    dark_triggers = (
+        "active dark woody",
+        "mode dark woody",
+        "passe en dark woody",
+        "passe en mode dark",
+        "deviens dark woody",
+        "salut dark woody",
+        "dark woody",
+    )
+    normal_triggers = (
+        "mode normal",
+        "redeviens woody",
+        "redevient woody",
+        "passe en woody",
+        "passe en mode normal",
+        "desactive dark woody",
+        "quitte dark woody",
+    )
+
+    if any(trigger in normalized for trigger in normal_triggers):
+        return "normal"
+    if any(trigger in normalized for trigger in dark_triggers):
+        return "dark"
+    return None
+
+
+def needs_live_search(text):
+    normalized = normalize(text)
+    markers = (
+        "actualite",
+        "aujourd hui",
+        "maintenant",
+        "en ce moment",
+        "derniere",
+        "dernier",
+        "recent",
+        "recente",
+        "temps fait",
+        "meteo",
+        "internet",
+        "cherche sur le web",
+        "recherche sur internet",
+        "qu est ce qui se passe",
+        "prix de",
+        "cours de",
+    )
+    return any(marker in normalized for marker in markers)
 
 
 def extract_repeat(normalized, default=1, maximum=5):
@@ -348,6 +464,20 @@ def get_client():
 
         client = OpenAI(api_key=llm_api_key, base_url=llm_base_url)
     return client
+
+
+def get_xai_client():
+    global xai_client
+    if xai_client is None:
+        from openai import OpenAI
+
+        api_key = os.environ.get("XAI_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                f"XAI_API_KEY is missing. Add it to {SECRETS_FILE} or export it."
+            )
+        xai_client = OpenAI(api_key=api_key, base_url=XAI_BASE_URL)
+    return xai_client
 
 
 def record_audio(path, seconds, device=DEFAULT_AUDIO_DEVICE, rate=DEFAULT_AUDIO_RATE):
@@ -640,6 +770,44 @@ def plan_turn(user_text, history):
         }
 
 
+def response_text(response):
+    output_text = getattr(response, "output_text", None)
+    if output_text:
+        return output_text.strip()
+
+    parts = []
+    for item in getattr(response, "output", []) or []:
+        for content in getattr(item, "content", []) or []:
+            text = getattr(content, "text", None)
+            if text:
+                parts.append(text)
+    return "\n".join(parts).strip()
+
+
+def grok_turn(user_text, history, dark=False, use_search=False):
+    system_prompt = DARK_WOODY_PROMPT if dark else GROK_WOODY_PROMPT
+    messages = [{"role": "system", "content": system_prompt}]
+    messages.extend(history[-8:])
+    messages.append({"role": "user", "content": user_text})
+
+    client_for_xai = get_xai_client()
+
+    if use_search:
+        response = client_for_xai.responses.create(
+            model=XAI_MODEL,
+            input=messages,
+            tools=[{"type": "web_search"}],
+        )
+        return response_text(response) or "J'ai cherche, mais je n'ai rien de solide a te dire."
+
+    response = client_for_xai.chat.completions.create(
+        model=XAI_MODEL,
+        messages=messages,
+        temperature=0.7 if dark else 0.4,
+    )
+    return response.choices[0].message.content.strip()
+
+
 def execute_plan(plan, dry_run=False):
     if plan.get("stop_motion"):
         stop_all_motion(dry_run=dry_run)
@@ -655,8 +823,37 @@ def execute_plan(plan, dry_run=False):
         run_action(name, repeat, dry_run=dry_run)
 
 
-def companion_turn(user_text, history, speak_enabled=True, dry_run=False):
-    plan = fast_plan(user_text) or sanitize_plan(user_text, plan_turn(user_text, history))
+def companion_turn(user_text, history, speak_enabled=True, dry_run=False, mode="normal"):
+    requested_mode = detect_personality_switch(user_text)
+    if requested_mode:
+        mode = requested_mode
+        if mode == "dark":
+            reply = "Dark Woody est reveille. Accroche-toi un peu."
+        else:
+            reply = "Je redeviens Woody. Plus calme, plus clair."
+        print(f"Woody: {reply}")
+        speak(reply, enabled=speak_enabled)
+        history.append({"role": "user", "content": user_text})
+        history.append({"role": "assistant", "content": reply})
+        return False, mode
+
+    plan = fast_plan(user_text)
+    if plan is None and (mode == "dark" or needs_live_search(user_text)):
+        try:
+            use_search = needs_live_search(user_text)
+            reply = grok_turn(user_text, history, dark=(mode == "dark"), use_search=use_search)
+            plan = {
+                "reply": reply,
+                "actions": [],
+                "dance_index": None,
+                "sleep": False,
+            }
+        except Exception as exc:
+            print(f"[woody] grok unavailable: {exc}")
+            plan = sanitize_plan(user_text, plan_turn(user_text, history))
+
+    if plan is None:
+        plan = sanitize_plan(user_text, plan_turn(user_text, history))
 
     reply = plan.get("reply") or "D'accord."
     print(f"Woody: {reply}")
@@ -674,21 +871,29 @@ def companion_turn(user_text, history, speak_enabled=True, dry_run=False):
 
     history.append({"role": "user", "content": user_text})
     history.append({"role": "assistant", "content": reply})
-    return bool(plan.get("sleep"))
+    return bool(plan.get("sleep")), mode
 
 
 def text_loop(args):
     history = []
+    mode = "normal"
     print("Woody text mode. Tape 'q' pour quitter.")
     while True:
         text = input("Vous > ").strip()
         if text.lower() in {"q", "quit", "exit"}:
             break
-        companion_turn(text, history, speak_enabled=args.speak, dry_run=args.dry_run)
+        _, mode = companion_turn(
+            text,
+            history,
+            speak_enabled=args.speak,
+            dry_run=args.dry_run,
+            mode=mode,
+        )
 
 
 def voice_session(args):
     history = []
+    mode = "normal"
     speak("Je suis la. Que veux-tu faire ?", enabled=args.speak)
     while True:
         print("[woody] parle maintenant...")
@@ -712,11 +917,12 @@ def voice_session(args):
             speak("Je n'ai pas bien entendu.", enabled=args.speak)
             continue
 
-        should_sleep = companion_turn(
+        should_sleep, mode = companion_turn(
             text,
             history,
             speak_enabled=args.speak,
             dry_run=args.dry_run,
+            mode=mode,
         )
         if should_sleep:
             break

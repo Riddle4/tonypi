@@ -35,10 +35,14 @@ except Exception:
     AGC = None
 
 
-APP_DIR = os.environ.get("WOODY_APP_DIR", "/home/pi/cosmo_robotics")
+DEFAULT_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+APP_DIR = os.environ.get("WOODY_APP_DIR", DEFAULT_APP_DIR)
 WAKE_AUDIO_FILE = os.path.join(APP_DIR, "woody_wake.wav")
 TURN_AUDIO_FILE = os.path.join(APP_DIR, "woody_turn.wav")
 REPLY_AUDIO_FILE = os.path.join(APP_DIR, "woody_reply.mp3")
+DEFAULT_MEMORY_FILE = os.path.join(APP_DIR, "memory", "private", "laurent_bio.md")
+MEMORY_FILE = os.environ.get("WOODY_MEMORY_FILE", DEFAULT_MEMORY_FILE)
+MAX_MEMORY_CHARS = int(os.environ.get("WOODY_MEMORY_MAX_CHARS", "12000"))
 
 DEFAULT_AUDIO_DEVICE = os.environ.get("WOODY_AUDIO_DEVICE", "hw:2,0")
 DEFAULT_AUDIO_RATE = int(os.environ.get("WOODY_AUDIO_RATE", "48000"))
@@ -64,6 +68,27 @@ USER_NAME = os.environ.get("WOODY_USER_NAME", "Laurent")
 
 client = None
 active_dance_process = None
+
+
+def load_private_memory():
+    if not MEMORY_FILE or not os.path.exists(MEMORY_FILE):
+        return ""
+
+    try:
+        with open(MEMORY_FILE, "r", encoding="utf-8") as memory:
+            text = memory.read().strip()
+    except Exception as exc:
+        print(f"[woody] private memory unavailable: {exc}")
+        return ""
+
+    if len(text) <= MAX_MEMORY_CHARS:
+        return text
+
+    clipped = text[:MAX_MEMORY_CHARS].rsplit("\n", 1)[0].strip()
+    return clipped + "\n\n[Memoire tronquee pour rester concise.]"
+
+
+PRIVATE_MEMORY = load_private_memory()
 
 TRANSCRIPTION_PROMPT = """
 Transcris en francais une commande adressee a Woody, un petit robot compagnon.
@@ -95,8 +120,15 @@ SYSTEM_PROMPT = f"""
 Tu es Woody, un compagnon robot TonyPi chaleureux, curieux et francophone.
 Ton interlocuteur principal s'appelle {USER_NAME}.
 
+Memoire privee sur {USER_NAME}:
+{PRIVATE_MEMORY or "Aucune memoire privee chargee."}
+
 Objectif:
 - Dialoguer naturellement en francais sur tous les sujets courants.
+- Utiliser la memoire privee pour mieux comprendre {USER_NAME}, personnaliser
+  tes reponses et poser des questions plus pertinentes.
+- Rester discret avec les sujets intimes: ne les evoque pas brutalement si
+  {USER_NAME} n'en parle pas lui-meme.
 - Repondre aux questions generales comme une vraie personne: blagues, recettes,
   explications, conseils simples, conversation.
 - Detecter les commandes physiques seulement quand l'utilisateur demande

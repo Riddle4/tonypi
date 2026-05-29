@@ -87,6 +87,27 @@ More action groups exist, but they should be added after testing one by one.
 - `woody_actions.py`: local action and dance catalog.
 - `woody_companion.py`: first companion app.
 
+## Private Memory
+
+Woody can load a private memory file at startup:
+
+`memory/private/laurent_bio.md`
+
+That directory is ignored by Git so personal biographical content is not pushed
+to GitHub. The normal `deploy.sh` command still copies it to the robot because
+it deploys the working folder to `/home/pi/cosmo_robotics`.
+
+To use another memory file without editing code:
+
+```bash
+WOODY_MEMORY_FILE=/home/pi/cosmo_robotics/memory/private/laurent_bio.md python3 woody_companion.py --speak
+```
+
+The memory is injected into Woody's system prompt as private context. It should
+help Woody remember Laurent's background, preferences, family context, projects,
+and sensitive topics, while staying discreet unless Laurent brings up those
+topics himself.
+
 ## Running
 
 Deploy first:

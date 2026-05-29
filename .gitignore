@@ -7,3 +7,6 @@ reply.mp3
 woody_wake.wav
 woody_turn.wav
 woody_reply.mp3
+
+# Private local memory deployed to the robot, never committed to GitHub
+memory/private/

@@ -86,14 +86,15 @@ Woody only executes physical actions when the request is explicit. Ambiguous
 phrases such as "bonjour", "a gauche", or "devant" are treated as conversation,
 not robot commands.
 
-In voice mode, Woody asks for confirmation before executing physical actions.
-This protects against speech-recognition mistakes. Say `oui`, `vas-y`, or
-`confirme` to execute. Say `non`, `annule`, or stay silent to cancel. The safety
-can be disabled only for controlled tests:
+In voice mode, Woody executes explicit physical actions immediately by default.
+For safer tests, you can make Woody ask for confirmation before moving:
 
 ```bash
-python3 woody_companion.py --speak --no-confirm-actions
+python3 woody_companion.py --speak --confirm-actions
 ```
+
+When confirmation is enabled, say `oui`, `vas-y`, or `confirme` to execute. Say
+`non`, `annule`, or stay silent to cancel.
 
 ## Program Files
 

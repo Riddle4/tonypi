@@ -1218,17 +1218,15 @@ def main():
     parser.add_argument("--speak", action="store_true", help="speak replies with TTS")
     parser.add_argument("--dry-run", action="store_true", help="do not run robot actions")
     parser.add_argument(
-        "--no-confirm-actions",
-        action="store_false",
-        dest="confirm_actions",
-        help="execute physical actions immediately in voice mode",
+        "--confirm-actions",
+        action="store_true",
+        help="ask for confirmation before physical actions in voice mode",
     )
     parser.add_argument("--wake-seconds", type=float, default=4.0)
     parser.add_argument("--turn-seconds", type=float, default=10.0)
     parser.add_argument("--silence-seconds", type=float, default=0.8)
     parser.add_argument("--start-timeout", type=float, default=6.0)
     parser.add_argument("--voice-threshold", type=int, default=DEFAULT_VOICE_THRESHOLD)
-    parser.set_defaults(confirm_actions=True)
     args = parser.parse_args()
 
     os.makedirs(APP_DIR, exist_ok=True)

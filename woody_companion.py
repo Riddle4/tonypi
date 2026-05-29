@@ -71,6 +71,7 @@ TTS_VOICE = os.environ.get("WOODY_TTS_VOICE", "alloy")
 USER_NAME = os.environ.get("WOODY_USER_NAME", "Laurent")
 API_TIMEOUT = float(os.environ.get("WOODY_API_TIMEOUT", "20"))
 XAI_API_TIMEOUT = float(os.environ.get("WOODY_XAI_API_TIMEOUT", "30"))
+SPEECH_TIMEOUT = float(os.environ.get("WOODY_SPEECH_TIMEOUT", "8"))
 
 client = None
 xai_client = None
@@ -565,6 +566,7 @@ def record_until_silence(
     start_time = time.monotonic()
     speech_start = None
     last_voice = None
+    max_rms = 0
 
     try:
         while True:
@@ -578,6 +580,7 @@ def record_until_silence(
             now = time.monotonic()
             chunks.append(chunk)
             rms = rms_pcm16(chunk)
+            max_rms = max(max_rms, rms)
 
             if rms >= threshold:
                 if not started:
@@ -607,7 +610,7 @@ def record_until_silence(
 
     audio_bytes = b"".join(chunks)
     write_wav(path, audio_bytes, rate=rate, channels=channels)
-    return started, len(audio_bytes) / float(rate * channels * 2)
+    return started, len(audio_bytes) / float(rate * channels * 2), max_rms
 
 
 def transcribe_audio(path):
@@ -629,20 +632,36 @@ def transcribe_audio(path):
     return transcript.text.strip()
 
 
+def speak_blocking(text):
+    response = get_client().audio.speech.create(
+        model=TTS_MODEL,
+        voice=TTS_VOICE,
+        input=text,
+    )
+    response.write_to_file(REPLY_AUDIO_FILE)
+    subprocess.run(["mpg123", "-q", REPLY_AUDIO_FILE], check=False)
+
+
 def speak(text, enabled=True):
     if not enabled or not text:
         return
 
-    try:
-        response = get_client().audio.speech.create(
-            model=TTS_MODEL,
-            voice=TTS_VOICE,
-            input=text,
-        )
-        response.write_to_file(REPLY_AUDIO_FILE)
-        subprocess.run(["mpg123", "-q", REPLY_AUDIO_FILE], check=False)
-    except Exception as exc:
-        print(f"[woody] speech unavailable: {exc}")
+    errors = []
+
+    def worker():
+        try:
+            speak_blocking(text)
+        except Exception as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    thread.join(SPEECH_TIMEOUT)
+    if thread.is_alive():
+        print(f"[woody] speech timed out after {SPEECH_TIMEOUT:.1f}s")
+        return
+    if errors:
+        print(f"[woody] speech unavailable: {errors[0]}")
 
 
 def speak_async(text, enabled=True):
@@ -908,7 +927,7 @@ def voice_session(args):
     time.sleep(0.2)
     while True:
         print("[woody] parle maintenant...", flush=True)
-        started, duration = record_until_silence(
+        started, duration, max_rms = record_until_silence(
             TURN_AUDIO_FILE,
             args.turn_seconds,
             threshold=args.voice_threshold,
@@ -917,7 +936,10 @@ def voice_session(args):
         )
         print(f"[woody] audio capture: {duration:.1f}s")
         if not started:
-            print("[woody] aucune voix detectee")
+            print(
+                "[woody] aucune voix detectee "
+                f"(niveau max {max_rms}, seuil {args.voice_threshold})"
+            )
             speak("Je n'ai pas entendu ta voix.", enabled=args.speak)
             continue
 

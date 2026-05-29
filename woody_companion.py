@@ -60,7 +60,7 @@ STOP_PHRASES = {"stop", "arrete", "arrete toi", "arrete tout", "immobile"}
 SLEEP_PHRASES = {"au revoir", "bonne nuit", "retourne dormir"}
 EXIT_PHRASES = STOP_PHRASES | SLEEP_PHRASES
 
-LLM_MODEL = os.environ.get("WOODY_LLM_MODEL", "gpt-5.5")
+LLM_MODEL = os.environ.get("WOODY_LLM_MODEL", "gpt-4o")
 TRANSCRIBE_MODEL = os.environ.get("WOODY_TRANSCRIBE_MODEL", "gpt-4o-transcribe")
 TTS_MODEL = os.environ.get("WOODY_TTS_MODEL", "gpt-4o-mini-tts")
 TTS_VOICE = os.environ.get("WOODY_TTS_VOICE", "alloy")

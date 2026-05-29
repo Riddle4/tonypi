@@ -187,11 +187,18 @@ WOODY_WAKE_ALIASES='salut woody,salut mon ami' python3 woody_companion.py --wake
 
 ## Notes
 
-Woody uses `gpt-5.5` by default for dialogue and planning. The model can be
+Woody uses `gpt-4o` by default for dialogue and planning because it is more
+responsive for live voice conversations. The model can be
 changed without editing code:
 
 ```bash
 WOODY_LLM_MODEL=gpt-4o-mini python3 woody_companion.py --text
+```
+
+For deeper but slower conversations, you can still run:
+
+```bash
+WOODY_LLM_MODEL=gpt-5.5 python3 woody_companion.py --text
 ```
 
 OpenAI's current guidance recommends the Responses API for new agentic or

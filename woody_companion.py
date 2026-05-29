@@ -50,6 +50,9 @@ DEFAULT_AUDIO_DEVICE = os.environ.get("WOODY_AUDIO_DEVICE", "hw:2,0")
 DEFAULT_AUDIO_RATE = int(os.environ.get("WOODY_AUDIO_RATE", "48000"))
 DEFAULT_AUDIO_CHANNELS = int(os.environ.get("WOODY_AUDIO_CHANNELS", "2"))
 DEFAULT_VOICE_THRESHOLD = int(os.environ.get("WOODY_VOICE_THRESHOLD", "500"))
+DEFAULT_SILENCE_SECONDS = float(os.environ.get("WOODY_SILENCE_SECONDS", "0.45"))
+DEFAULT_START_TIMEOUT = float(os.environ.get("WOODY_START_TIMEOUT", "4.0"))
+DEFAULT_CHUNK_MS = int(os.environ.get("WOODY_CHUNK_MS", "50"))
 WAKE_PHRASE = "salut woody"
 DEFAULT_WAKE_ALIASES = (
     "salut woody",
@@ -1100,6 +1103,7 @@ def record_confirmation(args, action_description):
         threshold=args.voice_threshold,
         silence_seconds=args.silence_seconds,
         start_timeout=3.0,
+        chunk_ms=args.chunk_ms,
     )
     print(
         f"[woody] confirmation capture: {duration:.1f}s "
@@ -1143,6 +1147,7 @@ def voice_session(args):
             threshold=args.voice_threshold,
             silence_seconds=args.silence_seconds,
             start_timeout=args.start_timeout,
+            chunk_ms=args.chunk_ms,
         )
         print(
             f"[woody] audio capture: {duration:.1f}s "
@@ -1157,7 +1162,9 @@ def voice_session(args):
             print(f"[woody] audio trop faible ignore: {max_rms} < {min_peak}")
             continue
 
+        transcribe_start = time.monotonic()
         text = transcribe_audio(TURN_AUDIO_FILE)
+        print(f"[woody] transcription: {time.monotonic() - transcribe_start:.2f}s")
         print(f"Vous: {text}")
 
         if not text:
@@ -1173,6 +1180,7 @@ def voice_session(args):
             print(f"[woody] transcription ignoree: {reason}")
             continue
 
+        turn_start = time.monotonic()
         should_sleep, mode = companion_turn(
             text,
             history,
@@ -1185,6 +1193,7 @@ def voice_session(args):
                 action_description,
             ),
         )
+        print(f"[woody] response/action turn: {time.monotonic() - turn_start:.2f}s")
         time.sleep(LISTEN_COOLDOWN)
         if should_sleep:
             break
@@ -1224,8 +1233,9 @@ def main():
     )
     parser.add_argument("--wake-seconds", type=float, default=4.0)
     parser.add_argument("--turn-seconds", type=float, default=10.0)
-    parser.add_argument("--silence-seconds", type=float, default=0.8)
-    parser.add_argument("--start-timeout", type=float, default=6.0)
+    parser.add_argument("--silence-seconds", type=float, default=DEFAULT_SILENCE_SECONDS)
+    parser.add_argument("--start-timeout", type=float, default=DEFAULT_START_TIMEOUT)
+    parser.add_argument("--chunk-ms", type=int, default=DEFAULT_CHUNK_MS)
     parser.add_argument("--voice-threshold", type=int, default=DEFAULT_VOICE_THRESHOLD)
     args = parser.parse_args()
 

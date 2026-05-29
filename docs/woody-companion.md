@@ -204,8 +204,13 @@ Voice mode stops automatically after the end of speech. `--turn-seconds` is only
 the maximum recording duration. If Woody cuts too early or waits too long, tune:
 
 ```bash
-python3 woody_companion.py --speak --silence-seconds 1.1
+python3 woody_companion.py --speak --silence-seconds 0.6
 ```
+
+Woody defaults to a fast voice loop: `--silence-seconds 0.45`,
+`--start-timeout 4.0`, and `--chunk-ms 50`. If the room is noisy, increase
+`--silence-seconds` slightly. If Woody waits too long after you stop speaking,
+lower it to `0.35`.
 
 If it does not detect your voice, lower the threshold:
 

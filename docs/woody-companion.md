@@ -339,7 +339,9 @@ local RMS threshold:
 python3 woody_realtime.py --provider xai --dark --local-vad-rms-threshold 650 --verbose
 ```
 
-The default local threshold is `1100`, which should avoid most room noise.
+The default local threshold is `650`, and Dark Woody requires two consecutive
+voice chunks before starting a turn. This helps catch quieter speech without
+reacting to every short noise spike.
 
 Realtime mode loads the same private memory as the stable Woody mode. Woody is
 explicitly instructed that his name is Woody, that he is speaking with Laurent,

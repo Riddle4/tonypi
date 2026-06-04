@@ -55,10 +55,11 @@ XAI_LOCAL_VAD = os.environ.get("WOODY_XAI_LOCAL_VAD", "1").lower() not in {
     "false",
     "no",
 }
-LOCAL_VAD_RMS_THRESHOLD = int(os.environ.get("WOODY_LOCAL_VAD_RMS_THRESHOLD", "1100"))
-LOCAL_VAD_SILENCE_MS = int(os.environ.get("WOODY_LOCAL_VAD_SILENCE_MS", "750"))
-LOCAL_VAD_MIN_SPEECH_MS = int(os.environ.get("WOODY_LOCAL_VAD_MIN_SPEECH_MS", "250"))
+LOCAL_VAD_RMS_THRESHOLD = int(os.environ.get("WOODY_LOCAL_VAD_RMS_THRESHOLD", "650"))
+LOCAL_VAD_SILENCE_MS = int(os.environ.get("WOODY_LOCAL_VAD_SILENCE_MS", "900"))
+LOCAL_VAD_MIN_SPEECH_MS = int(os.environ.get("WOODY_LOCAL_VAD_MIN_SPEECH_MS", "450"))
 LOCAL_VAD_PREFIX_CHUNKS = int(os.environ.get("WOODY_LOCAL_VAD_PREFIX_CHUNKS", "3"))
+LOCAL_VAD_START_CHUNKS = int(os.environ.get("WOODY_LOCAL_VAD_START_CHUNKS", "2"))
 REALTIME_ECHO_GUARD_MS = int(os.environ.get("WOODY_REALTIME_ECHO_GUARD_MS", "1400"))
 REALTIME_PLAYBACK_MUTE_SECONDS = float(
     os.environ.get("WOODY_REALTIME_PLAYBACK_MUTE_SECONDS", "45")
@@ -333,6 +334,7 @@ class RealtimeWoody:
             f"{self.args.rate}Hz/mono, vad={self.args.vad_threshold}, "
             f"local_vad={self.args.local_vad}, "
             f"local_rms={self.args.local_vad_rms_threshold}, "
+            f"local_start={self.args.local_vad_start_chunks}, "
             f"echo_guard={self.args.echo_guard_ms}ms",
             flush=True,
         )
@@ -482,6 +484,7 @@ class RealtimeWoody:
         speaking = False
         speech_started_at = None
         last_voice_at = None
+        voice_run = 0
         prefix_chunks = []
         try:
             while not self.stop_event.is_set():
@@ -505,6 +508,7 @@ class RealtimeWoody:
                     speaking = False
                     speech_started_at = None
                     last_voice_at = None
+                    voice_run = 0
                     prefix_chunks.clear()
                     continue
 
@@ -517,7 +521,8 @@ class RealtimeWoody:
                         prefix_chunks.append(chunk)
                         if len(prefix_chunks) > self.args.local_vad_prefix_chunks:
                             prefix_chunks.pop(0)
-                        if not is_voice:
+                        voice_run = voice_run + 1 if is_voice else 0
+                        if voice_run < self.args.local_vad_start_chunks:
                             continue
                         speaking = True
                         speech_started_at = now
@@ -530,6 +535,7 @@ class RealtimeWoody:
                     else:
                         if is_voice:
                             last_voice_at = now
+                        voice_run = voice_run + 1 if is_voice else 0
 
                     self.append_input_audio(chunk)
                     chunks_sent += 1
@@ -550,6 +556,7 @@ class RealtimeWoody:
                         speaking = False
                         speech_started_at = None
                         last_voice_at = None
+                        voice_run = 0
                     continue
 
                 self.append_input_audio(chunk)
@@ -617,6 +624,7 @@ def parse_args():
     parser.add_argument("--local-vad-silence-ms", type=int, default=LOCAL_VAD_SILENCE_MS)
     parser.add_argument("--local-vad-min-speech-ms", type=int, default=LOCAL_VAD_MIN_SPEECH_MS)
     parser.add_argument("--local-vad-prefix-chunks", type=int, default=LOCAL_VAD_PREFIX_CHUNKS)
+    parser.add_argument("--local-vad-start-chunks", type=int, default=LOCAL_VAD_START_CHUNKS)
     parser.add_argument("--echo-guard-ms", type=int, default=REALTIME_ECHO_GUARD_MS)
     parser.add_argument(
         "--playback-mute-seconds",

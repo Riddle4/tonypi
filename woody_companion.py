@@ -297,28 +297,28 @@ def contains_wake_phrase(text):
 def detect_personality_switch(text):
     normalized = normalize(text)
 
-    dark_triggers = (
-        "active dark woody",
-        "mode dark woody",
-        "passe en dark woody",
-        "passe en mode dark",
-        "deviens dark woody",
-        "salut dark woody",
-        "dark woody",
+    dark_patterns = (
+        r"\bactive dark woody\b",
+        r"\bactive le mode dark woody\b",
+        r"\bpasse en dark woody\b",
+        r"\bpasse en mode dark woody\b",
+        r"\bpasse en mode dark\b",
+        r"\bdeviens dark woody\b",
+        r"\bmode dark woody\b",
     )
-    normal_triggers = (
-        "mode normal",
-        "redeviens woody",
-        "redevient woody",
-        "passe en woody",
-        "passe en mode normal",
-        "desactive dark woody",
-        "quitte dark woody",
+    normal_patterns = (
+        r"\bmode normal\b",
+        r"\bredeviens woody\b",
+        r"\bredevient woody\b",
+        r"\bpasse en woody\b",
+        r"\bpasse en mode normal\b",
+        r"\bdesactive dark woody\b",
+        r"\bquitte dark woody\b",
     )
 
-    if any(trigger in normalized for trigger in normal_triggers):
+    if any(re.search(pattern, normalized) for pattern in normal_patterns):
         return "normal"
-    if any(trigger in normalized for trigger in dark_triggers):
+    if any(re.search(pattern, normalized) for pattern in dark_patterns):
         return "dark"
     return None
 

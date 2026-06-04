@@ -194,6 +194,13 @@ def run_woody(mode=None, dry_run=False):
         if not dry_run:
             subprocess.run(cmd, check=False)
         return
+    if normalized_mode in {"darkrealtime", "darkrt", "darklive", "grokrealtime"}:
+        script = os.path.join(root, "woody_realtime.py")
+        cmd = [sys.executable, script, "--provider", "xai", "--dark"]
+        print("[go] " + " ".join(cmd))
+        if not dry_run:
+            subprocess.run(cmd, check=False)
+        return
 
     script = os.path.join(root, "woody_companion.py")
     cmd = [sys.executable, script]
@@ -223,6 +230,7 @@ def list_commands():
     print("\nWoody:")
     print("  woody       -> lance Woody en mode voix")
     print("  woody realtime -> lance Woody en mode Realtime experimental")
+    print("  woody darkrealtime -> lance Dark Woody Realtime avec Grok")
     print("  woody text  -> lance Woody en mode texte")
     print("  woody wake  -> lance Woody en mode reveil")
 

@@ -128,6 +128,7 @@ Woody shortcuts:
 ```bash
 ./go woody       # voice companion mode
 ./go woody realtime # experimental low-latency Realtime mode
+./go woody darkrealtime # experimental Dark Woody Realtime mode with Grok
 ./go woody text  # typed companion mode
 ./go woody wake  # software wake phrase mode
 ```
@@ -309,6 +310,19 @@ python3 woody_realtime.py --probe
 
 The first Realtime version is conversation-only. Robot movement tools will be
 added after the live voice path is stable.
+
+Dark Woody can also run in experimental Realtime mode with xAI Grok Voice:
+
+```bash
+./go woody darkrealtime
+```
+
+This uses `XAI_API_KEY`, the `grok-voice-latest` model by default, and the xAI
+Realtime WebSocket endpoint. You can override the model or voice:
+
+```bash
+WOODY_XAI_REALTIME_MODEL=grok-voice-think-fast-1.0 WOODY_XAI_REALTIME_VOICE=rex ./go woody darkrealtime
+```
 
 Realtime mode loads the same private memory as the stable Woody mode. Woody is
 explicitly instructed that his name is Woody, that he is speaking with Laurent,

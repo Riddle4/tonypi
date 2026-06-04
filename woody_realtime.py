@@ -25,6 +25,7 @@ import websocket
 
 from woody_companion import (
     DEFAULT_AUDIO_DEVICE,
+    DARK_TTS_INSTRUCTIONS,
     MEMORY_FILE,
     PRIVATE_MEMORY,
     SECRETS_FILE,
@@ -35,7 +36,10 @@ from woody_companion import (
 
 
 REALTIME_MODEL = os.environ.get("WOODY_REALTIME_MODEL", "gpt-realtime-2")
-REALTIME_URL = "wss://api.openai.com/v1/realtime"
+OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime"
+XAI_REALTIME_URL = "wss://api.x.ai/v1/realtime"
+XAI_REALTIME_MODEL = os.environ.get("WOODY_XAI_REALTIME_MODEL", "grok-voice-latest")
+XAI_REALTIME_VOICE = os.environ.get("WOODY_XAI_REALTIME_VOICE", "rex")
 REALTIME_RATE = int(os.environ.get("WOODY_REALTIME_RATE", "24000"))
 REALTIME_CAPTURE_RATE = int(os.environ.get("WOODY_REALTIME_CAPTURE_RATE", "48000"))
 REALTIME_CAPTURE_CHANNELS = int(os.environ.get("WOODY_REALTIME_CAPTURE_CHANNELS", "2"))
@@ -87,12 +91,52 @@ physiques du robot seront ajoutes ensuite comme outils separes.
 """
 
 
-def require_openai_key():
+def dark_realtime_instructions():
+    memory = PRIVATE_MEMORY or "Aucune memoire privee chargee."
+    return f"""
+Identite stable:
+- Ton nom est Dark Woody.
+- Tu es l'autre personnalite de Woody, le compagnon robot de {USER_NAME}.
+- Tu parles avec {USER_NAME}, pas avec un utilisateur anonyme.
+- Tu sais que {USER_NAME} s'appelle {USER_NAME} et tu as une memoire privee
+  sur son histoire.
+- Si {USER_NAME} te demande qui tu es, reponds que tu es Dark Woody, la version
+  plus incisive, moqueuse et rebelle de Woody.
+
+Style:
+- Tu parles en francais naturel, avec un ton plus sombre, sec, joueur,
+  incisif et un peu moqueur.
+- Tu poses des questions qui derangent, tu challenge les idees molles, mais tu
+  restes loyal, attachant et utile.
+- Tu ne deviens jamais cruel, haineux, humiliant ou gratuitement blessant.
+- Reponds en 1 a 3 phrases pour garder un rythme vocal naturel, sauf si
+  {USER_NAME} te demande explicitement de developper.
+- Tu peux etre sarcastique, mais pas confus: reste clair.
+
+Memoire privee de Dark Woody sur {USER_NAME}:
+{memory}
+
+Regle importante sur la memoire:
+- Utilise la memoire quand elle rend la conversation plus personnelle ou plus
+  pertinente.
+- Si la memoire ne contient pas une information precise, dis-le simplement au
+  lieu d'inventer.
+
+Voix:
+{DARK_TTS_INSTRUCTIONS}
+
+Pour cette version experimentale Realtime, tu discutes seulement. Les mouvements
+physiques du robot seront ajoutes ensuite comme outils separes.
+"""
+
+
+def require_api_key(provider):
     load_env_file(SECRETS_FILE)
-    key = os.environ.get("OPENAI_API_KEY")
+    key_name = "XAI_API_KEY" if provider == "xai" else "OPENAI_API_KEY"
+    key = os.environ.get(key_name)
     if not key:
         raise RuntimeError(
-            f"OPENAI_API_KEY is missing. Add it to {SECRETS_FILE} or export it."
+            f"{key_name} is missing. Add it to {SECRETS_FILE} or export it."
         )
     return key
 
@@ -102,11 +146,13 @@ def send_event(ws, event):
 
 
 def session_update_event(args):
+    transcription_model = "grok-transcribe" if args.provider == "xai" else "gpt-4o-transcribe"
+    instructions = dark_realtime_instructions() if args.dark else realtime_instructions()
     return {
         "type": "session.update",
         "session": {
             "type": "realtime",
-            "instructions": realtime_instructions(),
+            "instructions": instructions,
             "audio": {
                 "input": {
                     "format": {
@@ -114,7 +160,7 @@ def session_update_event(args):
                         "rate": args.rate,
                     },
                     "transcription": {
-                        "model": "gpt-4o-transcribe",
+                        "model": transcription_model,
                         "language": "fr",
                     },
                     "turn_detection": {
@@ -236,8 +282,9 @@ class RealtimeWoody:
         self.output_active = threading.Event()
 
     def connect(self):
-        api_key = require_openai_key()
-        url = f"{REALTIME_URL}?model={self.args.model}"
+        api_key = require_api_key(self.args.provider)
+        base_url = XAI_REALTIME_URL if self.args.provider == "xai" else OPENAI_REALTIME_URL
+        url = f"{base_url}?model={self.args.model}"
         headers = [
             f"Authorization: Bearer {api_key}",
             "OpenAI-Safety-Identifier: woody-laurent",
@@ -254,7 +301,12 @@ class RealtimeWoody:
 
     def on_open(self, ws):
         self.connected_at = time.monotonic()
-        print("[realtime] connected", flush=True)
+        personality = "dark" if self.args.dark else "normal"
+        print(
+            f"[realtime] connected provider={self.args.provider} "
+            f"model={self.args.model} voice={self.args.voice} personality={personality}",
+            flush=True,
+        )
         send_event(ws, session_update_event(self.args))
         if self.args.probe:
             return
@@ -465,8 +517,10 @@ class RealtimeWoody:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Experimental Realtime Woody voice mode")
-    parser.add_argument("--model", default=REALTIME_MODEL)
-    parser.add_argument("--voice", default=REALTIME_VOICE)
+    parser.add_argument("--provider", choices=("openai", "xai"), default="openai")
+    parser.add_argument("--dark", action="store_true", help="use Dark Woody personality")
+    parser.add_argument("--model")
+    parser.add_argument("--voice")
     parser.add_argument("--device", default=DEFAULT_AUDIO_DEVICE)
     parser.add_argument("--rate", type=int, default=REALTIME_RATE)
     parser.add_argument("--capture-rate", type=int, default=REALTIME_CAPTURE_RATE)
@@ -488,7 +542,12 @@ def parse_args():
     parser.add_argument("--max-output-tokens", type=int, default=450)
     parser.add_argument("--probe", action="store_true", help="connect, update session, then exit")
     parser.add_argument("--verbose", action="store_true")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.model is None:
+        args.model = XAI_REALTIME_MODEL if args.provider == "xai" else REALTIME_MODEL
+    if args.voice is None:
+        args.voice = XAI_REALTIME_VOICE if args.provider == "xai" else REALTIME_VOICE
+    return args
 
 
 def main():

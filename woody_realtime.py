@@ -32,8 +32,9 @@ from woody_companion import (
     SECRETS_FILE,
     TTS_VOICE,
     USER_NAME,
+    TRANSCRIBE_MODEL,
+    get_client,
     load_env_file,
-    transcribe_audio,
     write_wav,
 )
 
@@ -75,6 +76,15 @@ REALTIME_PLAYBACK_MUTE_SECONDS = float(
 REALTIME_PLAYBACK_DRAIN_TIMEOUT = float(
     os.environ.get("WOODY_REALTIME_PLAYBACK_DRAIN_TIMEOUT", "60")
 )
+REALTIME_TRANSCRIPTION_PROMPT = """
+Transcris exactement la phrase prononcee par Laurent en francais.
+Ne transforme pas la phrase en commande robot.
+Ne remplace pas une phrase courte par une phrase plus courante.
+Ne traduis pas. Ne devine pas.
+Garde les mots entendus, meme si la phrase est incomplete ou familiere.
+Exemples de phrases possibles: tu es encore la, est-ce que tu m'entends,
+comment vas-tu, tourne a droite, redeviens Woody, active Dark Woody.
+"""
 
 
 def realtime_instructions():
@@ -164,6 +174,25 @@ def require_api_key(provider):
 
 def send_event(ws, event):
     ws.send(json.dumps(event, ensure_ascii=True))
+
+
+def transcribe_realtime_audio(path):
+    with open(path, "rb") as audio:
+        try:
+            transcript = get_client().audio.transcriptions.create(
+                model=TRANSCRIBE_MODEL,
+                file=audio,
+                language="fr",
+                prompt=REALTIME_TRANSCRIPTION_PROMPT,
+            )
+        except TypeError:
+            audio.seek(0)
+            transcript = get_client().audio.transcriptions.create(
+                model=TRANSCRIBE_MODEL,
+                file=audio,
+                language="fr",
+            )
+    return transcript.text.strip()
 
 
 def session_update_event(args):
@@ -473,11 +502,14 @@ class RealtimeWoody:
         audio_bytes = b"".join(chunks)
         if not audio_bytes:
             return ""
+        if self.args.verbose:
+            duration = len(audio_bytes) / float(self.args.rate * 2)
+            print(f"[realtime] transcription audio: {duration:.2f}s", flush=True)
         fd, path = tempfile.mkstemp(prefix="woody_realtime_", suffix=".wav")
         os.close(fd)
         try:
             write_wav(path, audio_bytes, rate=self.args.rate, channels=1)
-            return transcribe_audio(path).strip()
+            return transcribe_realtime_audio(path).strip()
         finally:
             try:
                 os.unlink(path)

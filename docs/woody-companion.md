@@ -347,6 +347,8 @@ Dark Woody Realtime also uses a text bridge by default: OpenAI transcribes
 Laurent's French speech first, then the clean text is sent to Grok Voice for the
 Dark Woody response. This avoids xAI mishearing French phrases as English or
 Turkish while still keeping Grok as the Dark Woody personality and voice.
+The Realtime bridge uses a neutral transcription prompt so it does not bias
+phrases toward the stable robot command examples.
 
 Realtime mode loads the same private memory as the stable Woody mode. Woody is
 explicitly instructed that his name is Woody, that he is speaking with Laurent,

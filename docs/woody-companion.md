@@ -299,8 +299,9 @@ conversation experiments, use:
 
 This runs `woody_realtime.py`, a separate WebSocket Realtime client. It streams
 24 kHz PCM16 microphone audio to OpenAI, lets server VAD detect turn endings,
-and plays returned `response.output_audio.delta` chunks immediately through
-`aplay`.
+plays returned `response.output_audio.delta` chunks immediately through `aplay`,
+and executes explicit TonyPi physical commands through the existing safe action
+planner.
 
 Probe the Realtime session without opening the microphone:
 
@@ -308,49 +309,23 @@ Probe the Realtime session without opening the microphone:
 python3 woody_realtime.py --probe
 ```
 
-The first Realtime version is conversation-only. Robot movement tools will be
-added after the live voice path is stable.
+Realtime normal mode can execute explicit physical commands such as `avance`,
+`tourne a droite`, `danse`, `salue`, `squat`, and `stop`.
 
-Dark Woody can also run in experimental Realtime mode with xAI Grok Voice:
+When you ask for Dark Woody from normal Realtime mode, `go woody realtime`
+switches to the stable non-Realtime Dark Woody mode with the guttural voice. In
+Dark Woody, say `redeviens Woody normal` to exit Dark mode and return to normal
+Realtime mode.
+
+You can also start Dark Woody directly:
 
 ```bash
 ./go woody darkrealtime
 ```
 
-This uses `XAI_API_KEY`, the `grok-voice-latest` model by default, and the xAI
-Realtime WebSocket endpoint. You can override the model or voice:
-
-```bash
-WOODY_XAI_REALTIME_MODEL=grok-voice-think-fast-1.0 WOODY_XAI_REALTIME_VOICE=rex ./go woody darkrealtime
-```
-
-xAI/Grok uses a more sensitive VAD threshold by default (`0.22`). If Dark Woody
-still does not hear you, lower it for a test:
-
-```bash
-WOODY_XAI_REALTIME_VAD_THRESHOLD=0.12 ./go woody darkrealtime
-```
-
-Dark Woody Realtime uses local VAD by default because xAI's server VAD can be
-less reliable on the TonyPi microphone. If it still misses your voice, lower the
-local RMS threshold:
-
-```bash
-python3 woody_realtime.py --provider xai --dark --local-vad-rms-threshold 650 --verbose
-```
-
-The default local threshold is `650`, and Dark Woody requires two consecutive
-voice chunks before starting a turn. This helps catch quieter speech without
-reacting to every short noise spike.
-
-Dark Woody Realtime also uses a text bridge by default: OpenAI transcribes
-Laurent's French speech first, then the clean text is sent to Grok Voice for the
-Dark Woody response. This avoids xAI mishearing French phrases as English or
-Turkish while still keeping Grok as the Dark Woody personality and voice.
-The Realtime bridge uses a neutral transcription prompt so it does not bias
-phrases toward the stable robot command examples.
-It also includes a hint for news questions so "quelles sont les nouvelles du
-jour" is not mistaken for "nouveau jour".
+Despite the name, this now launches the stable non-Realtime Dark Woody mode with
+the guttural voice. The previous experimental xAI/Grok Realtime mode is no
+longer the recommended path because speech recognition was unreliable in French.
 
 Realtime mode loads the same private memory as the stable Woody mode. Woody is
 explicitly instructed that his name is Woody, that he is speaking with Laurent,

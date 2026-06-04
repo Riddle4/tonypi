@@ -1224,8 +1224,10 @@ def record_confirmation(args, action_description):
 
 def voice_session(args):
     history = []
-    mode = "normal"
+    mode = args.start_mode
     print("[woody] voice session starting", flush=True)
+    if mode == "dark":
+        print("[woody] starting in Dark Woody mode", flush=True)
     while True:
         print("[woody] parle maintenant...", flush=True)
         started, duration, max_rms = record_until_silence(
@@ -1266,6 +1268,17 @@ def voice_session(args):
         if ignore_text:
             print(f"[woody] transcription ignoree: {reason}")
             continue
+
+        requested_mode = detect_personality_switch(text)
+        if (
+            mode == "dark"
+            and requested_mode == "normal"
+            and args.return_realtime_on_normal
+        ):
+            reply = "Je repasse en Woody normal."
+            print(f"Woody: {reply}")
+            speak(reply, enabled=args.speak, dark=True)
+            raise SystemExit(42)
 
         turn_start = time.monotonic()
         should_sleep, mode = companion_turn(
@@ -1324,6 +1337,12 @@ def main():
     parser.add_argument("--start-timeout", type=float, default=DEFAULT_START_TIMEOUT)
     parser.add_argument("--chunk-ms", type=int, default=DEFAULT_CHUNK_MS)
     parser.add_argument("--voice-threshold", type=int, default=DEFAULT_VOICE_THRESHOLD)
+    parser.add_argument("--start-mode", choices=("normal", "dark"), default="normal")
+    parser.add_argument(
+        "--return-realtime-on-normal",
+        action="store_true",
+        help="exit with code 42 when Dark Woody is asked to return to normal Woody",
+    )
     args = parser.parse_args()
 
     os.makedirs(APP_DIR, exist_ok=True)

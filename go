@@ -188,17 +188,54 @@ def run_woody(mode=None, dry_run=False):
     root = os.path.dirname(os.path.abspath(__file__))
     normalized_mode = normalize(mode or "")
     if normalized_mode in {"realtime", "rt", "live"}:
-        script = os.path.join(root, "woody_realtime.py")
-        cmd = [sys.executable, script]
-        print("[go] " + " ".join(cmd))
-        if not dry_run:
-            subprocess.run(cmd, check=False)
+        realtime_script = os.path.join(root, "woody_realtime.py")
+        dark_script = os.path.join(root, "woody_companion.py")
+        while True:
+            cmd = [sys.executable, realtime_script]
+            if dry_run:
+                cmd.append("--dry-run")
+            print("[go] " + " ".join(cmd))
+            if dry_run:
+                return
+            result = subprocess.run(cmd, check=False)
+            if result.returncode != 42:
+                return
+
+            cmd = [
+                sys.executable,
+                dark_script,
+                "--speak",
+                "--voice-threshold",
+                "450",
+                "--start-mode",
+                "dark",
+                "--return-realtime-on-normal",
+            ]
+            print("[go] " + " ".join(cmd))
+            result = subprocess.run(cmd, check=False)
+            if result.returncode != 42:
+                return
         return
     if normalized_mode in {"darkrealtime", "darkrt", "darklive", "grokrealtime"}:
-        script = os.path.join(root, "woody_realtime.py")
-        cmd = [sys.executable, script, "--provider", "xai", "--dark"]
+        realtime_script = os.path.join(root, "woody_realtime.py")
+        dark_script = os.path.join(root, "woody_companion.py")
+        cmd = [
+            sys.executable,
+            dark_script,
+            "--speak",
+            "--voice-threshold",
+            "450",
+            "--start-mode",
+            "dark",
+            "--return-realtime-on-normal",
+        ]
         print("[go] " + " ".join(cmd))
-        if not dry_run:
+        if dry_run:
+            return
+        result = subprocess.run(cmd, check=False)
+        if result.returncode == 42:
+            cmd = [sys.executable, realtime_script]
+            print("[go] " + " ".join(cmd))
             subprocess.run(cmd, check=False)
         return
 
@@ -230,7 +267,7 @@ def list_commands():
     print("\nWoody:")
     print("  woody       -> lance Woody en mode voix")
     print("  woody realtime -> lance Woody en mode Realtime experimental")
-    print("  woody darkrealtime -> lance Dark Woody Realtime avec Grok")
+    print("  woody darkrealtime -> lance Dark Woody non-Realtime avec voix gutturale")
     print("  woody text  -> lance Woody en mode texte")
     print("  woody wake  -> lance Woody en mode reveil")
 

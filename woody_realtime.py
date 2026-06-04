@@ -33,6 +33,9 @@ from woody_companion import (
     TTS_VOICE,
     USER_NAME,
     TRANSCRIBE_MODEL,
+    detect_personality_switch,
+    execute_plan,
+    fast_plan,
     get_client,
     load_env_file,
     write_wav,
@@ -340,6 +343,7 @@ class RealtimeWoody:
         self.input_mute_lock = threading.Lock()
         self.input_muted_until = 0.0
         self.output_active = threading.Event()
+        self.pending_mode_switch = None
 
     def connect(self):
         api_key = require_api_key(self.args.provider)
@@ -411,6 +415,7 @@ class RealtimeWoody:
             text = event.get("transcript", "").strip()
             if text:
                 print(f"Vous: {text}", flush=True)
+                self.handle_user_text(text)
             return
 
         if event_type == "response.output_audio.delta":
@@ -458,6 +463,33 @@ class RealtimeWoody:
         self.stop_event.set()
         self.player.stop()
         print(f"[realtime] closed {status_code or ''} {msg or ''}".strip(), flush=True)
+
+    def handle_user_text(self, text):
+        if not text:
+            return
+
+        requested_mode = detect_personality_switch(text)
+        if requested_mode == "dark" and not self.args.dark:
+            print("[realtime] passage vers Dark Woody non-realtime", flush=True)
+            self.pending_mode_switch = "dark"
+            self.close()
+            return
+
+        if self.args.dark:
+            return
+
+        plan = fast_plan(text)
+        if not plan:
+            return
+
+        has_physical_action = bool(
+            plan.get("stop_motion") or plan.get("dance_index") or plan.get("actions")
+        )
+        if not has_physical_action:
+            return
+
+        print("[realtime] commande physique detectee", flush=True)
+        execute_plan(plan, dry_run=self.args.dry_run)
 
     def mute_input(self, seconds):
         until = time.monotonic() + seconds
@@ -647,6 +679,7 @@ class RealtimeWoody:
                                 text = ""
                             if text:
                                 print(f"Vous: {text}", flush=True)
+                                self.handle_user_text(text)
                                 self.send_text_turn(text)
                             else:
                                 print("[realtime] transcription vide ignoree", flush=True)
@@ -743,6 +776,7 @@ def parse_args():
     parser.add_argument("--max-output-tokens", type=int, default=450)
     parser.add_argument("--probe", action="store_true", help="connect, update session, then exit")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--dry-run", action="store_true", help="print robot actions without moving")
     args = parser.parse_args()
     if args.model is None:
         args.model = XAI_REALTIME_MODEL if args.provider == "xai" else REALTIME_MODEL
@@ -771,6 +805,8 @@ def main():
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
     app.connect()
+    if app.pending_mode_switch == "dark":
+        raise SystemExit(42)
 
 
 if __name__ == "__main__":

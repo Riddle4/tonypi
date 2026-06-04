@@ -43,6 +43,7 @@ REALTIME_CHUNK_MS = int(os.environ.get("WOODY_REALTIME_CHUNK_MS", "100"))
 REALTIME_VOICE = os.environ.get("WOODY_REALTIME_VOICE", TTS_VOICE)
 REALTIME_SILENCE_MS = int(os.environ.get("WOODY_REALTIME_SILENCE_MS", "450"))
 REALTIME_VAD_THRESHOLD = float(os.environ.get("WOODY_REALTIME_VAD_THRESHOLD", "0.35"))
+REALTIME_ECHO_GUARD_MS = int(os.environ.get("WOODY_REALTIME_ECHO_GUARD_MS", "900"))
 
 
 def realtime_instructions():
@@ -116,7 +117,7 @@ def session_update_event(args):
 class AudioPlayer:
     def __init__(self, rate):
         self.rate = rate
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.proc = None
         self.first_audio_at = None
 
@@ -155,6 +156,26 @@ class AudioPlayer:
             except BrokenPipeError:
                 self.stop()
 
+    def finish(self):
+        with self.lock:
+            if self.proc is None:
+                return
+            if self.proc.poll() is None:
+                try:
+                    if self.proc.stdin:
+                        self.proc.stdin.close()
+                except Exception:
+                    pass
+                try:
+                    self.proc.wait(timeout=8)
+                except subprocess.TimeoutExpired:
+                    self.proc.terminate()
+                    try:
+                        self.proc.wait(timeout=0.5)
+                    except subprocess.TimeoutExpired:
+                        self.proc.kill()
+            self.proc = None
+
     def stop(self):
         with self.lock:
             if self.proc is None:
@@ -183,6 +204,8 @@ class RealtimeWoody:
         self.events = queue.Queue()
         self.connected_at = None
         self.ratecv_state = None
+        self.input_mute_lock = threading.Lock()
+        self.input_muted_until = 0.0
 
     def connect(self):
         api_key = require_openai_key()
@@ -212,7 +235,8 @@ class RealtimeWoody:
         print(
             "[realtime] capture "
             f"{self.args.capture_rate}Hz/{self.args.capture_channels}ch -> "
-            f"{self.args.rate}Hz/mono, vad={self.args.vad_threshold}",
+            f"{self.args.rate}Hz/mono, vad={self.args.vad_threshold}, "
+            f"echo_guard={self.args.echo_guard_ms}ms",
             flush=True,
         )
         print("[realtime] parle quand tu veux. Ctrl-C pour quitter.", flush=True)
@@ -245,6 +269,7 @@ class RealtimeWoody:
         if event_type == "response.output_audio.delta":
             delta = event.get("delta")
             if delta:
+                self.mute_input(self.args.echo_guard_ms / 1000.0)
                 self.player.write(base64.b64decode(delta))
             return
 
@@ -259,7 +284,8 @@ class RealtimeWoody:
             return
 
         if event_type == "response.done":
-            self.player.stop()
+            self.mute_input(self.args.echo_guard_ms / 1000.0)
+            self.player.finish()
             print("[realtime] reponse terminee", flush=True)
             return
 
@@ -279,6 +305,15 @@ class RealtimeWoody:
         self.stop_event.set()
         self.player.stop()
         print(f"[realtime] closed {status_code or ''} {msg or ''}".strip(), flush=True)
+
+    def mute_input(self, seconds):
+        until = time.monotonic() + seconds
+        with self.input_mute_lock:
+            self.input_muted_until = max(self.input_muted_until, until)
+
+    def input_is_muted(self):
+        with self.input_mute_lock:
+            return time.monotonic() < self.input_muted_until
 
     def capture_audio(self):
         chunk_frames = max(1, int(self.args.capture_rate * self.args.chunk_ms / 1000))
@@ -317,6 +352,8 @@ class RealtimeWoody:
                 if self.args.verbose and time.monotonic() >= next_level_log:
                     print(f"[realtime] audio rms {audioop.rms(chunk, 2)}", flush=True)
                     next_level_log = time.monotonic() + 1.0
+                if self.input_is_muted():
+                    continue
                 send_event(
                     self.ws,
                     {
@@ -378,6 +415,7 @@ def parse_args():
     parser.add_argument("--chunk-ms", type=int, default=REALTIME_CHUNK_MS)
     parser.add_argument("--silence-ms", type=int, default=REALTIME_SILENCE_MS)
     parser.add_argument("--vad-threshold", type=float, default=REALTIME_VAD_THRESHOLD)
+    parser.add_argument("--echo-guard-ms", type=int, default=REALTIME_ECHO_GUARD_MS)
     parser.add_argument("--max-output-tokens", type=int, default=450)
     parser.add_argument("--probe", action="store_true", help="connect, update session, then exit")
     parser.add_argument("--verbose", action="store_true")

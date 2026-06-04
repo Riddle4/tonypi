@@ -321,6 +321,13 @@ python3 woody_realtime.py --verbose
 
 The `audio rms` value should rise clearly when you speak.
 
+If Woody answers himself or chains replies too quickly, increase the echo guard.
+It mutes microphone streaming while Woody's speaker is playing:
+
+```bash
+WOODY_REALTIME_ECHO_GUARD_MS=1300 ./go woody realtime
+```
+
 If it does not detect your voice, lower the threshold:
 
 ```bash

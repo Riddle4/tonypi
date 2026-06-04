@@ -191,6 +191,28 @@ also choose another Grok model without editing code:
 WOODY_XAI_MODEL=grok-4.3 python3 woody_companion.py --speak
 ```
 
+## Spoken voice
+
+Woody uses OpenAI text-to-speech with `gpt-4o-mini-tts`. The default voice is
+now `shimmer`, with instructions asking for a natural French female voice and a
+European French accent.
+
+Dark Woody uses the same voice, but with separate instructions for a lower,
+drier, more teasing delivery.
+
+You can test another built-in OpenAI voice without editing code:
+
+```bash
+WOODY_TTS_VOICE=nova python3 woody_companion.py --speak
+```
+
+You can also override the French voice direction:
+
+```bash
+WOODY_TTS_INSTRUCTIONS="Parle en francais naturel, voix de femme francaise, ton pose." python3 woody_companion.py --speak
+WOODY_DARK_TTS_INSTRUCTIONS="Parle en francais naturel, voix de femme francaise, ton ironique et sec." python3 woody_companion.py --speak
+```
+
 ## Running
 
 Deploy first:

@@ -70,7 +70,23 @@ XAI_MODEL = os.environ.get("WOODY_XAI_MODEL", "grok-4.3")
 XAI_BASE_URL = os.environ.get("XAI_BASE_URL", "https://api.x.ai/v1")
 TRANSCRIBE_MODEL = os.environ.get("WOODY_TRANSCRIBE_MODEL", "gpt-4o-transcribe")
 TTS_MODEL = os.environ.get("WOODY_TTS_MODEL", "gpt-4o-mini-tts")
-TTS_VOICE = os.environ.get("WOODY_TTS_VOICE", "alloy")
+TTS_VOICE = os.environ.get("WOODY_TTS_VOICE", "shimmer")
+TTS_INSTRUCTIONS = os.environ.get(
+    "WOODY_TTS_INSTRUCTIONS",
+    (
+        "Parle en francais europeen naturel avec une voix de femme francaise, "
+        "chaleureuse, claire et fluide. Evite toute intonation anglophone. "
+        "Garde un rythme vivant, sans surjouer."
+    ),
+)
+DARK_TTS_INSTRUCTIONS = os.environ.get(
+    "WOODY_DARK_TTS_INSTRUCTIONS",
+    (
+        "Parle en francais europeen naturel avec une voix de femme francaise, "
+        "plus basse, seche, malicieuse et un peu moqueuse. Evite toute "
+        "intonation anglophone. Reste attachante sous l'ironie."
+    ),
+)
 USER_NAME = os.environ.get("WOODY_USER_NAME", "Laurent")
 API_TIMEOUT = float(os.environ.get("WOODY_API_TIMEOUT", "20"))
 XAI_API_TIMEOUT = float(os.environ.get("WOODY_XAI_API_TIMEOUT", "30"))
@@ -723,17 +739,30 @@ def transcribe_audio(path):
     return transcript.text.strip()
 
 
-def speak_blocking(text):
-    response = get_client().audio.speech.create(
-        model=TTS_MODEL,
-        voice=TTS_VOICE,
-        input=text,
-    )
+def tts_instructions(dark=False):
+    return DARK_TTS_INSTRUCTIONS if dark else TTS_INSTRUCTIONS
+
+
+def speak_blocking(text, dark=False):
+    kwargs = {
+        "model": TTS_MODEL,
+        "voice": TTS_VOICE,
+        "input": text,
+    }
+    instructions = tts_instructions(dark=dark)
+    if instructions and not TTS_MODEL.startswith("tts-1"):
+        kwargs["instructions"] = instructions
+
+    try:
+        response = get_client().audio.speech.create(**kwargs)
+    except TypeError:
+        kwargs.pop("instructions", None)
+        response = get_client().audio.speech.create(**kwargs)
     response.write_to_file(REPLY_AUDIO_FILE)
     subprocess.run(["mpg123", "-q", REPLY_AUDIO_FILE], check=False)
 
 
-def speak(text, enabled=True):
+def speak(text, enabled=True, dark=False):
     if not enabled or not text:
         return
 
@@ -741,7 +770,7 @@ def speak(text, enabled=True):
 
     def worker():
         try:
-            speak_blocking(text)
+            speak_blocking(text, dark=dark)
         except Exception as exc:
             errors.append(exc)
 
@@ -755,10 +784,10 @@ def speak(text, enabled=True):
         print(f"[woody] speech unavailable: {errors[0]}")
 
 
-def speak_async(text, enabled=True):
+def speak_async(text, enabled=True, dark=False):
     if not enabled or not text:
         return None
-    thread = threading.Thread(target=speak, args=(text, enabled), daemon=True)
+    thread = threading.Thread(target=speak, args=(text, enabled, dark), daemon=True)
     thread.start()
     return thread
 
@@ -1015,7 +1044,7 @@ def companion_turn(
         else:
             reply = "Je redeviens Woody. Plus calme, plus clair."
         print(f"Woody: {reply}")
-        speak(reply, enabled=speak_enabled)
+        speak(reply, enabled=speak_enabled, dark=(mode == "dark"))
         history.append({"role": "user", "content": user_text})
         history.append({"role": "assistant", "content": reply})
         return False, mode
@@ -1055,18 +1084,18 @@ def companion_turn(
         if not confirm_callback(action_description):
             reply = "D'accord, je ne bouge pas."
             print(f"Woody: {reply}")
-            speak(reply, enabled=speak_enabled)
+            speak(reply, enabled=speak_enabled, dark=(mode == "dark"))
             history.append({"role": "user", "content": user_text})
             history.append({"role": "assistant", "content": reply})
             return False, mode
 
     if has_physical_action:
-        voice_thread = speak_async(reply, enabled=speak_enabled)
+        voice_thread = speak_async(reply, enabled=speak_enabled, dark=(mode == "dark"))
         execute_plan(plan, dry_run=dry_run)
         if voice_thread:
             voice_thread.join()
     else:
-        speak(reply, enabled=speak_enabled)
+        speak(reply, enabled=speak_enabled, dark=(mode == "dark"))
 
     history.append({"role": "user", "content": user_text})
     history.append({"role": "assistant", "content": reply})

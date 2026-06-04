@@ -50,7 +50,7 @@ DEFAULT_AUDIO_DEVICE = os.environ.get("WOODY_AUDIO_DEVICE", "hw:2,0")
 DEFAULT_AUDIO_RATE = int(os.environ.get("WOODY_AUDIO_RATE", "48000"))
 DEFAULT_AUDIO_CHANNELS = int(os.environ.get("WOODY_AUDIO_CHANNELS", "2"))
 DEFAULT_VOICE_THRESHOLD = int(os.environ.get("WOODY_VOICE_THRESHOLD", "500"))
-DEFAULT_SILENCE_SECONDS = float(os.environ.get("WOODY_SILENCE_SECONDS", "0.45"))
+DEFAULT_SILENCE_SECONDS = float(os.environ.get("WOODY_SILENCE_SECONDS", "0.35"))
 DEFAULT_START_TIMEOUT = float(os.environ.get("WOODY_START_TIMEOUT", "4.0"))
 DEFAULT_CHUNK_MS = int(os.environ.get("WOODY_CHUNK_MS", "50"))
 WAKE_PHRASE = "salut woody"
@@ -95,8 +95,9 @@ USER_NAME = os.environ.get("WOODY_USER_NAME", "Laurent")
 API_TIMEOUT = float(os.environ.get("WOODY_API_TIMEOUT", "20"))
 XAI_API_TIMEOUT = float(os.environ.get("WOODY_XAI_API_TIMEOUT", "30"))
 SPEECH_TIMEOUT = float(os.environ.get("WOODY_SPEECH_TIMEOUT", "8"))
-LISTEN_COOLDOWN = float(os.environ.get("WOODY_LISTEN_COOLDOWN", "0.6"))
+LISTEN_COOLDOWN = float(os.environ.get("WOODY_LISTEN_COOLDOWN", "0.25"))
 MIN_VOICE_PEAK_MARGIN = int(os.environ.get("WOODY_MIN_VOICE_PEAK_MARGIN", "150"))
+TTS_STREAM = os.environ.get("WOODY_TTS_STREAM", "1").lower() not in {"0", "false", "no"}
 
 client = None
 xai_client = None
@@ -751,7 +752,37 @@ def tts_voice(dark=False):
     return DARK_TTS_VOICE if dark else TTS_VOICE
 
 
+def play_streaming_mp3(response, start_time=None):
+    proc = subprocess.Popen(
+        ["mpg123", "-q", "-"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    first_chunk = True
+    try:
+        if proc.stdin is None:
+            raise RuntimeError("mpg123 stdin unavailable")
+        for chunk in response.iter_bytes(chunk_size=4096):
+            if not chunk:
+                continue
+            if first_chunk and start_time is not None:
+                print(
+                    f"[woody] speech first audio: {time.monotonic() - start_time:.2f}s",
+                    flush=True,
+                )
+                first_chunk = False
+            proc.stdin.write(chunk)
+            proc.stdin.flush()
+        proc.stdin.close()
+        proc.wait(timeout=max(1.0, SPEECH_TIMEOUT))
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+
+
 def speak_blocking(text, dark=False):
+    speech_start = time.monotonic()
     kwargs = {
         "model": TTS_MODEL,
         "voice": tts_voice(dark=dark),
@@ -760,6 +791,24 @@ def speak_blocking(text, dark=False):
     instructions = tts_instructions(dark=dark)
     if instructions and not TTS_MODEL.startswith("tts-1"):
         kwargs["instructions"] = instructions
+
+    if TTS_STREAM:
+        stream_kwargs = dict(kwargs)
+        stream_kwargs["response_format"] = "mp3"
+        stream_kwargs["stream_format"] = "audio"
+        try:
+            with get_client().audio.speech.with_streaming_response.create(
+                **stream_kwargs
+            ) as response:
+                play_streaming_mp3(response, start_time=speech_start)
+            return
+        except TypeError:
+            stream_kwargs.pop("instructions", None)
+            with get_client().audio.speech.with_streaming_response.create(
+                **stream_kwargs
+            ) as response:
+                play_streaming_mp3(response, start_time=speech_start)
+                return
 
     try:
         response = get_client().audio.speech.create(**kwargs)

@@ -266,10 +266,18 @@ the maximum recording duration. If Woody cuts too early or waits too long, tune:
 python3 woody_companion.py --speak --silence-seconds 0.6
 ```
 
-Woody defaults to a fast voice loop: `--silence-seconds 0.45`,
+Woody defaults to a fast voice loop: `--silence-seconds 0.35`,
 `--start-timeout 4.0`, and `--chunk-ms 50`. If the room is noisy, increase
 `--silence-seconds` slightly. If Woody waits too long after you stop speaking,
-lower it to `0.35`.
+lower it carefully.
+
+Woody streams text-to-speech by default, so audio playback can start while the
+OpenAI speech response is still being generated. If the audio player behaves
+badly on the robot, disable streaming for a test:
+
+```bash
+WOODY_TTS_STREAM=0 python3 woody_companion.py --speak
+```
 
 If it does not detect your voice, lower the threshold:
 

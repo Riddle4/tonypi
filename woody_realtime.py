@@ -18,6 +18,7 @@ import queue
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -32,6 +33,8 @@ from woody_companion import (
     TTS_VOICE,
     USER_NAME,
     load_env_file,
+    transcribe_audio,
+    write_wav,
 )
 
 
@@ -51,6 +54,11 @@ XAI_REALTIME_VAD_THRESHOLD = float(
     os.environ.get("WOODY_XAI_REALTIME_VAD_THRESHOLD", "0.22")
 )
 XAI_LOCAL_VAD = os.environ.get("WOODY_XAI_LOCAL_VAD", "1").lower() not in {
+    "0",
+    "false",
+    "no",
+}
+XAI_TEXT_BRIDGE = os.environ.get("WOODY_XAI_TEXT_BRIDGE", "1").lower() not in {
     "0",
     "false",
     "no",
@@ -169,6 +177,12 @@ def session_update_event(args):
             "prefix_padding_ms": 250,
             "silence_duration_ms": args.silence_ms,
         }
+    transcription = None
+    if not args.text_bridge:
+        transcription = {
+            "model": transcription_model,
+            "language": "fr",
+        }
     return {
         "type": "session.update",
         "session": {
@@ -180,10 +194,7 @@ def session_update_event(args):
                         "type": "audio/pcm",
                         "rate": args.rate,
                     },
-                    "transcription": {
-                        "model": transcription_model,
-                        "language": "fr",
-                    },
+                    "transcription": transcription,
                     "turn_detection": turn_detection,
                 },
                 "output": {
@@ -333,6 +344,7 @@ class RealtimeWoody:
             f"{self.args.capture_rate}Hz/{self.args.capture_channels}ch -> "
             f"{self.args.rate}Hz/mono, vad={self.args.vad_threshold}, "
             f"local_vad={self.args.local_vad}, "
+            f"text_bridge={self.args.text_bridge}, "
             f"local_rms={self.args.local_vad_rms_threshold}, "
             f"local_start={self.args.local_vad_start_chunks}, "
             f"echo_guard={self.args.echo_guard_ms}ms",
@@ -457,6 +469,37 @@ class RealtimeWoody:
         send_event(self.ws, {"type": "input_audio_buffer.commit"})
         send_event(self.ws, {"type": "response.create"})
 
+    def transcribe_chunks(self, chunks):
+        audio_bytes = b"".join(chunks)
+        if not audio_bytes:
+            return ""
+        fd, path = tempfile.mkstemp(prefix="woody_realtime_", suffix=".wav")
+        os.close(fd)
+        try:
+            write_wav(path, audio_bytes, rate=self.args.rate, channels=1)
+            return transcribe_audio(path).strip()
+        finally:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+    def send_text_turn(self, text):
+        if self.ws is None or not text:
+            return
+        send_event(
+            self.ws,
+            {
+                "type": "conversation.item.create",
+                "item": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": text}],
+                },
+            },
+        )
+        send_event(self.ws, {"type": "response.create"})
+
     def capture_audio(self):
         chunk_frames = max(1, int(self.args.capture_rate * self.args.chunk_ms / 1000))
         chunk_bytes = chunk_frames * self.args.capture_channels * 2
@@ -486,6 +529,7 @@ class RealtimeWoody:
         last_voice_at = None
         voice_run = 0
         prefix_chunks = []
+        turn_chunks = []
         try:
             while not self.stop_event.is_set():
                 if proc.stdout is None:
@@ -510,6 +554,7 @@ class RealtimeWoody:
                     last_voice_at = None
                     voice_run = 0
                     prefix_chunks.clear()
+                    turn_chunks.clear()
                     continue
 
                 if self.args.local_vad:
@@ -528,17 +573,23 @@ class RealtimeWoody:
                         speech_started_at = now
                         last_voice_at = now
                         print("[realtime] voix detectee locale", flush=True)
-                        for prefix in prefix_chunks:
-                            self.append_input_audio(prefix)
-                            chunks_sent += 1
+                        if self.args.text_bridge:
+                            turn_chunks.extend(prefix_chunks)
+                        else:
+                            for prefix in prefix_chunks:
+                                self.append_input_audio(prefix)
+                                chunks_sent += 1
                         prefix_chunks.clear()
                     else:
                         if is_voice:
                             last_voice_at = now
                         voice_run = voice_run + 1 if is_voice else 0
 
-                    self.append_input_audio(chunk)
-                    chunks_sent += 1
+                    if self.args.text_bridge:
+                        turn_chunks.append(chunk)
+                    else:
+                        self.append_input_audio(chunk)
+                        chunks_sent += 1
 
                     enough_speech = (
                         speech_started_at is not None
@@ -552,11 +603,24 @@ class RealtimeWoody:
                     )
                     if enough_speech and enough_silence:
                         print("[realtime] fin de phrase locale", flush=True)
-                        self.commit_input_audio()
+                        if self.args.text_bridge:
+                            try:
+                                text = self.transcribe_chunks(turn_chunks)
+                            except Exception as exc:
+                                print(f"[realtime] transcription failed: {exc}", flush=True)
+                                text = ""
+                            if text:
+                                print(f"Vous: {text}", flush=True)
+                                self.send_text_turn(text)
+                            else:
+                                print("[realtime] transcription vide ignoree", flush=True)
+                        else:
+                            self.commit_input_audio()
                         speaking = False
                         speech_started_at = None
                         last_voice_at = None
                         voice_run = 0
+                        turn_chunks.clear()
                     continue
 
                 self.append_input_audio(chunk)
@@ -620,6 +684,10 @@ def parse_args():
     local_vad_group.add_argument("--local-vad", dest="local_vad", action="store_true")
     local_vad_group.add_argument("--server-vad", dest="local_vad", action="store_false")
     parser.set_defaults(local_vad=None)
+    text_bridge_group = parser.add_mutually_exclusive_group()
+    text_bridge_group.add_argument("--text-bridge", dest="text_bridge", action="store_true")
+    text_bridge_group.add_argument("--audio-bridge", dest="text_bridge", action="store_false")
+    parser.set_defaults(text_bridge=None)
     parser.add_argument("--local-vad-rms-threshold", type=int, default=LOCAL_VAD_RMS_THRESHOLD)
     parser.add_argument("--local-vad-silence-ms", type=int, default=LOCAL_VAD_SILENCE_MS)
     parser.add_argument("--local-vad-min-speech-ms", type=int, default=LOCAL_VAD_MIN_SPEECH_MS)
@@ -652,6 +720,8 @@ def parse_args():
         )
     if args.local_vad is None:
         args.local_vad = XAI_LOCAL_VAD if args.provider == "xai" else False
+    if args.text_bridge is None:
+        args.text_bridge = XAI_TEXT_BRIDGE if args.provider == "xai" else False
     return args
 
 

@@ -63,6 +63,7 @@ ALIASES = {
 DANCE_ALIASES = {"danse", "dance", "dancer"}
 STOP_ALIASES = {"stop", "arrete", "arret", "immobile"}
 BATTERY_ALIASES = {"bat", "batt", "battery", "batterie", "pile"}
+WOODY_ALIASES = {"woody", "compagnon", "companion"}
 
 
 def normalize(text):
@@ -183,6 +184,22 @@ def run_dance(index=1, dry_run=False):
         subprocess.run(["python3", DANCE_SCRIPT, str(index)], check=False)
 
 
+def run_woody(mode=None, dry_run=False):
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "woody_companion.py")
+    cmd = [sys.executable, script]
+
+    if normalize(mode or "") in {"text", "texte"}:
+        cmd.append("--text")
+    elif normalize(mode or "") in {"wake", "reveil"}:
+        cmd.extend(["--wake", "--speak", "--voice-threshold", "450"])
+    else:
+        cmd.extend(["--speak", "--voice-threshold", "450"])
+
+    print("[go] " + " ".join(cmd))
+    if not dry_run:
+        subprocess.run(cmd, check=False)
+
+
 def list_commands():
     print("Actions:")
     for alias, action in sorted(ALIASES.items()):
@@ -193,6 +210,10 @@ def list_commands():
     print("  stop")
     print("\nBatterie:")
     print("  bat")
+    print("\nWoody:")
+    print("  woody       -> lance Woody en mode voix")
+    print("  woody text  -> lance Woody en mode texte")
+    print("  woody wake  -> lance Woody en mode reveil")
 
 
 def parse_repeat(value):
@@ -221,6 +242,10 @@ def main():
 
     if command in BATTERY_ALIASES:
         show_battery(dry_run=args.dry_run)
+        return
+
+    if command in WOODY_ALIASES:
+        run_woody(mode=args.value, dry_run=args.dry_run)
         return
 
     if command in DANCE_ALIASES:

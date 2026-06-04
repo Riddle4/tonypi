@@ -114,12 +114,21 @@ cd /home/pi/cosmo_robotics
 ./go avance 2
 ./go bat
 ./go stop
+./go woody
 ```
 
 List available aliases:
 
 ```bash
 ./go list
+```
+
+Woody shortcuts:
+
+```bash
+./go woody       # voice companion mode
+./go woody text  # typed companion mode
+./go woody wake  # software wake phrase mode
 ```
 
 ## Private Memory

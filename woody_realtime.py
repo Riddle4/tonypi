@@ -42,8 +42,11 @@ REALTIME_CAPTURE_CHANNELS = int(os.environ.get("WOODY_REALTIME_CAPTURE_CHANNELS"
 REALTIME_CHUNK_MS = int(os.environ.get("WOODY_REALTIME_CHUNK_MS", "100"))
 REALTIME_VOICE = os.environ.get("WOODY_REALTIME_VOICE", TTS_VOICE)
 REALTIME_SILENCE_MS = int(os.environ.get("WOODY_REALTIME_SILENCE_MS", "450"))
-REALTIME_VAD_THRESHOLD = float(os.environ.get("WOODY_REALTIME_VAD_THRESHOLD", "0.35"))
-REALTIME_ECHO_GUARD_MS = int(os.environ.get("WOODY_REALTIME_ECHO_GUARD_MS", "900"))
+REALTIME_VAD_THRESHOLD = float(os.environ.get("WOODY_REALTIME_VAD_THRESHOLD", "0.55"))
+REALTIME_ECHO_GUARD_MS = int(os.environ.get("WOODY_REALTIME_ECHO_GUARD_MS", "1400"))
+REALTIME_PLAYBACK_MUTE_SECONDS = float(
+    os.environ.get("WOODY_REALTIME_PLAYBACK_MUTE_SECONDS", "45")
+)
 
 
 def realtime_instructions():
@@ -206,6 +209,7 @@ class RealtimeWoody:
         self.ratecv_state = None
         self.input_mute_lock = threading.Lock()
         self.input_muted_until = 0.0
+        self.output_active = threading.Event()
 
     def connect(self):
         api_key = require_openai_key()
@@ -252,8 +256,11 @@ class RealtimeWoody:
             return
 
         if event_type == "input_audio_buffer.speech_started":
+            if self.output_active.is_set() or self.input_is_muted():
+                if self.args.verbose:
+                    print("[realtime] voix ignoree pendant la reponse", flush=True)
+                return
             print("[realtime] voix detectee", flush=True)
-            self.player.stop()
             return
 
         if event_type == "input_audio_buffer.speech_stopped":
@@ -269,7 +276,8 @@ class RealtimeWoody:
         if event_type == "response.output_audio.delta":
             delta = event.get("delta")
             if delta:
-                self.mute_input(self.args.echo_guard_ms / 1000.0)
+                self.output_active.set()
+                self.mute_input(self.args.playback_mute_seconds)
                 self.player.write(base64.b64decode(delta))
             return
 
@@ -284,9 +292,14 @@ class RealtimeWoody:
             return
 
         if event_type == "response.done":
-            self.mute_input(self.args.echo_guard_ms / 1000.0)
+            self.output_active.set()
+            self.mute_input(self.args.playback_mute_seconds)
             self.player.finish()
+            self.output_active.clear()
+            self.clear_input_buffer()
+            self.mute_input(self.args.echo_guard_ms / 1000.0)
             print("[realtime] reponse terminee", flush=True)
+            print("[realtime] a toi", flush=True)
             return
 
         if event_type == "error":
@@ -314,6 +327,15 @@ class RealtimeWoody:
     def input_is_muted(self):
         with self.input_mute_lock:
             return time.monotonic() < self.input_muted_until
+
+    def clear_input_buffer(self):
+        if self.ws is None:
+            return
+        try:
+            send_event(self.ws, {"type": "input_audio_buffer.clear"})
+        except Exception as exc:
+            if self.args.verbose:
+                print(f"[realtime] input clear failed: {exc}", flush=True)
 
     def capture_audio(self):
         chunk_frames = max(1, int(self.args.capture_rate * self.args.chunk_ms / 1000))
@@ -416,6 +438,11 @@ def parse_args():
     parser.add_argument("--silence-ms", type=int, default=REALTIME_SILENCE_MS)
     parser.add_argument("--vad-threshold", type=float, default=REALTIME_VAD_THRESHOLD)
     parser.add_argument("--echo-guard-ms", type=int, default=REALTIME_ECHO_GUARD_MS)
+    parser.add_argument(
+        "--playback-mute-seconds",
+        type=float,
+        default=REALTIME_PLAYBACK_MUTE_SECONDS,
+    )
     parser.add_argument("--max-output-tokens", type=int, default=450)
     parser.add_argument("--probe", action="store_true", help="connect, update session, then exit")
     parser.add_argument("--verbose", action="store_true")

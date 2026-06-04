@@ -328,6 +328,10 @@ It mutes microphone streaming while Woody's speaker is playing:
 WOODY_REALTIME_ECHO_GUARD_MS=1300 ./go woody realtime
 ```
 
+Realtime now runs half-duplex by default: while Woody is speaking, microphone
+audio is not sent to OpenAI. When the log prints `[realtime] a toi`, Woody is
+listening again.
+
 If it does not detect your voice, lower the threshold:
 
 ```bash

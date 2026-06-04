@@ -310,6 +310,11 @@ python3 woody_realtime.py --probe
 The first Realtime version is conversation-only. Robot movement tools will be
 added after the live voice path is stable.
 
+Realtime mode loads the same private memory as the stable Woody mode. Woody is
+explicitly instructed that his name is Woody, that he is speaking with Laurent,
+and that he can use Laurent's private memory when it is relevant without
+reciting it unprompted.
+
 TonyPi's USB microphone may reject direct 24 kHz mono capture. The Realtime
 script therefore records the microphone in the known-good TonyPi format
 `48000Hz/2ch`, then converts it to `24000Hz/mono` before streaming to OpenAI.

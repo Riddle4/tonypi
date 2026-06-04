@@ -82,8 +82,12 @@ Ne transforme pas la phrase en commande robot.
 Ne remplace pas une phrase courte par une phrase plus courante.
 Ne traduis pas. Ne devine pas.
 Garde les mots entendus, meme si la phrase est incomplete ou familiere.
+Laurent peut demander des actualites: quelles sont les nouvelles du jour,
+quelles sont les news du jour, quelles sont les actualites aujourd'hui.
+Si tu entends "nouvelles du jour", ne transcris pas "nouveau jour".
 Exemples de phrases possibles: tu es encore la, est-ce que tu m'entends,
-comment vas-tu, tourne a droite, redeviens Woody, active Dark Woody.
+comment vas-tu, quelles sont les nouvelles du jour, tourne a droite,
+redeviens Woody, active Dark Woody.
 """
 
 

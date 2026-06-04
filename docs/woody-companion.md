@@ -349,6 +349,8 @@ Dark Woody response. This avoids xAI mishearing French phrases as English or
 Turkish while still keeping Grok as the Dark Woody personality and voice.
 The Realtime bridge uses a neutral transcription prompt so it does not bias
 phrases toward the stable robot command examples.
+It also includes a hint for news questions so "quelles sont les nouvelles du
+jour" is not mistaken for "nouveau jour".
 
 Realtime mode loads the same private memory as the stable Woody mode. Woody is
 explicitly instructed that his name is Woody, that he is speaking with Laurent,

@@ -185,12 +185,22 @@ def run_dance(index=1, dry_run=False):
 
 
 def run_woody(mode=None, dry_run=False):
-    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "woody_companion.py")
+    root = os.path.dirname(os.path.abspath(__file__))
+    normalized_mode = normalize(mode or "")
+    if normalized_mode in {"realtime", "rt", "live"}:
+        script = os.path.join(root, "woody_realtime.py")
+        cmd = [sys.executable, script]
+        print("[go] " + " ".join(cmd))
+        if not dry_run:
+            subprocess.run(cmd, check=False)
+        return
+
+    script = os.path.join(root, "woody_companion.py")
     cmd = [sys.executable, script]
 
-    if normalize(mode or "") in {"text", "texte"}:
+    if normalized_mode in {"text", "texte"}:
         cmd.append("--text")
-    elif normalize(mode or "") in {"wake", "reveil"}:
+    elif normalized_mode in {"wake", "reveil"}:
         cmd.extend(["--wake", "--speak", "--voice-threshold", "450"])
     else:
         cmd.extend(["--speak", "--voice-threshold", "450"])
@@ -212,6 +222,7 @@ def list_commands():
     print("  bat")
     print("\nWoody:")
     print("  woody       -> lance Woody en mode voix")
+    print("  woody realtime -> lance Woody en mode Realtime experimental")
     print("  woody text  -> lance Woody en mode texte")
     print("  woody wake  -> lance Woody en mode reveil")
 

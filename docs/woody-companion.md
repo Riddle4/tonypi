@@ -127,6 +127,7 @@ Woody shortcuts:
 
 ```bash
 ./go woody       # voice companion mode
+./go woody realtime # experimental low-latency Realtime mode
 ./go woody text  # typed companion mode
 ./go woody wake  # software wake phrase mode
 ```
@@ -285,6 +286,29 @@ off, increase this guard:
 ```bash
 WOODY_SPEECH_TIMEOUT=45 python3 woody_companion.py --speak
 ```
+
+## Experimental Realtime Mode
+
+The current stable mode is still `go woody`. For lower latency voice
+conversation experiments, use:
+
+```bash
+./go woody realtime
+```
+
+This runs `woody_realtime.py`, a separate WebSocket Realtime client. It streams
+24 kHz PCM16 microphone audio to OpenAI, lets server VAD detect turn endings,
+and plays returned `response.output_audio.delta` chunks immediately through
+`aplay`.
+
+Probe the Realtime session without opening the microphone:
+
+```bash
+python3 woody_realtime.py --probe
+```
+
+The first Realtime version is conversation-only. Robot movement tools will be
+added after the live voice path is stable.
 
 If it does not detect your voice, lower the threshold:
 

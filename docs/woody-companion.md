@@ -100,6 +100,26 @@ When confirmation is enabled, say `oui`, `vas-y`, or `confirme` to execute. Say
 
 - `woody_actions.py`: local action and dance catalog.
 - `woody_companion.py`: first companion app.
+- `go`: simple terminal launcher for robot actions.
+
+## Terminal Action Launcher
+
+For direct movement tests without voice or AI:
+
+```bash
+cd /home/pi/cosmo_robotics
+./go salue
+./go squat
+./go danse 2
+./go avance 2
+./go stop
+```
+
+List available aliases:
+
+```bash
+./go list
+```
 
 ## Private Memory
 

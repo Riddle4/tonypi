@@ -6,6 +6,11 @@ working voice pipeline remains easy to restore.
 """
 
 import argparse
+import warnings
+
+warnings.simplefilter("ignore", DeprecationWarning)
+
+import audioop
 import base64
 import json
 import os
@@ -32,9 +37,12 @@ from woody_companion import (
 REALTIME_MODEL = os.environ.get("WOODY_REALTIME_MODEL", "gpt-realtime-2")
 REALTIME_URL = "wss://api.openai.com/v1/realtime"
 REALTIME_RATE = int(os.environ.get("WOODY_REALTIME_RATE", "24000"))
+REALTIME_CAPTURE_RATE = int(os.environ.get("WOODY_REALTIME_CAPTURE_RATE", "48000"))
+REALTIME_CAPTURE_CHANNELS = int(os.environ.get("WOODY_REALTIME_CAPTURE_CHANNELS", "2"))
 REALTIME_CHUNK_MS = int(os.environ.get("WOODY_REALTIME_CHUNK_MS", "100"))
 REALTIME_VOICE = os.environ.get("WOODY_REALTIME_VOICE", TTS_VOICE)
 REALTIME_SILENCE_MS = int(os.environ.get("WOODY_REALTIME_SILENCE_MS", "450"))
+REALTIME_VAD_THRESHOLD = float(os.environ.get("WOODY_REALTIME_VAD_THRESHOLD", "0.35"))
 
 
 def realtime_instructions():
@@ -174,6 +182,7 @@ class RealtimeWoody:
         self.player = AudioPlayer(rate=args.rate)
         self.events = queue.Queue()
         self.connected_at = None
+        self.ratecv_state = None
 
     def connect(self):
         api_key = require_openai_key()
@@ -200,6 +209,12 @@ class RealtimeWoody:
             return
         self.audio_thread = threading.Thread(target=self.capture_audio, daemon=True)
         self.audio_thread.start()
+        print(
+            "[realtime] capture "
+            f"{self.args.capture_rate}Hz/{self.args.capture_channels}ch -> "
+            f"{self.args.rate}Hz/mono, vad={self.args.vad_threshold}",
+            flush=True,
+        )
         print("[realtime] parle quand tu veux. Ctrl-C pour quitter.", flush=True)
 
     def on_message(self, ws, message):
@@ -266,8 +281,8 @@ class RealtimeWoody:
         print(f"[realtime] closed {status_code or ''} {msg or ''}".strip(), flush=True)
 
     def capture_audio(self):
-        chunk_frames = max(1, int(self.args.rate * self.args.chunk_ms / 1000))
-        chunk_bytes = chunk_frames * 2
+        chunk_frames = max(1, int(self.args.capture_rate * self.args.chunk_ms / 1000))
+        chunk_bytes = chunk_frames * self.args.capture_channels * 2
         cmd = [
             "arecord",
             "-D",
@@ -275,9 +290,9 @@ class RealtimeWoody:
             "-f",
             "S16_LE",
             "-r",
-            str(self.args.rate),
+            str(self.args.capture_rate),
             "-c",
-            "1",
+            str(self.args.capture_channels),
             "-t",
             "raw",
             "-q",
@@ -285,8 +300,10 @@ class RealtimeWoody:
         proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
+        chunks_sent = 0
+        next_level_log = time.monotonic() + 1.0
         try:
             while not self.stop_event.is_set():
                 if proc.stdout is None:
@@ -296,6 +313,10 @@ class RealtimeWoody:
                     break
                 if self.ws is None:
                     break
+                chunk = self.prepare_input_audio(chunk)
+                if self.args.verbose and time.monotonic() >= next_level_log:
+                    print(f"[realtime] audio rms {audioop.rms(chunk, 2)}", flush=True)
+                    next_level_log = time.monotonic() + 1.0
                 send_event(
                     self.ws,
                     {
@@ -303,6 +324,7 @@ class RealtimeWoody:
                         "audio": base64.b64encode(chunk).decode("ascii"),
                     },
                 )
+                chunks_sent += 1
         except Exception as exc:
             if not self.stop_event.is_set():
                 print(f"[realtime] audio capture error: {exc}", flush=True)
@@ -313,6 +335,30 @@ class RealtimeWoody:
                     proc.wait(timeout=1)
                 except subprocess.TimeoutExpired:
                     proc.kill()
+            if chunks_sent == 0 and proc.stderr is not None:
+                error = proc.stderr.read().decode("utf-8", errors="replace").strip()
+                if error:
+                    print(f"[realtime] arecord: {error}", flush=True)
+
+    def prepare_input_audio(self, chunk):
+        audio = chunk
+        if self.args.capture_channels == 2:
+            audio = audioop.tomono(audio, 2, 0.5, 0.5)
+        elif self.args.capture_channels != 1:
+            raise RuntimeError(
+                f"unsupported capture channel count: {self.args.capture_channels}"
+            )
+
+        if self.args.capture_rate != self.args.rate:
+            audio, self.ratecv_state = audioop.ratecv(
+                audio,
+                2,
+                1,
+                self.args.capture_rate,
+                self.args.rate,
+                self.ratecv_state,
+            )
+        return audio
 
     def close(self):
         self.stop_event.set()
@@ -327,9 +373,11 @@ def parse_args():
     parser.add_argument("--voice", default=REALTIME_VOICE)
     parser.add_argument("--device", default=DEFAULT_AUDIO_DEVICE)
     parser.add_argument("--rate", type=int, default=REALTIME_RATE)
+    parser.add_argument("--capture-rate", type=int, default=REALTIME_CAPTURE_RATE)
+    parser.add_argument("--capture-channels", type=int, default=REALTIME_CAPTURE_CHANNELS)
     parser.add_argument("--chunk-ms", type=int, default=REALTIME_CHUNK_MS)
     parser.add_argument("--silence-ms", type=int, default=REALTIME_SILENCE_MS)
-    parser.add_argument("--vad-threshold", type=float, default=0.5)
+    parser.add_argument("--vad-threshold", type=float, default=REALTIME_VAD_THRESHOLD)
     parser.add_argument("--max-output-tokens", type=int, default=450)
     parser.add_argument("--probe", action="store_true", help="connect, update session, then exit")
     parser.add_argument("--verbose", action="store_true")

@@ -310,6 +310,17 @@ python3 woody_realtime.py --probe
 The first Realtime version is conversation-only. Robot movement tools will be
 added after the live voice path is stable.
 
+TonyPi's USB microphone may reject direct 24 kHz mono capture. The Realtime
+script therefore records the microphone in the known-good TonyPi format
+`48000Hz/2ch`, then converts it to `24000Hz/mono` before streaming to OpenAI.
+If Woody does not seem to hear you, run:
+
+```bash
+python3 woody_realtime.py --verbose
+```
+
+The `audio rms` value should rise clearly when you speak.
+
 If it does not detect your voice, lower the threshold:
 
 ```bash

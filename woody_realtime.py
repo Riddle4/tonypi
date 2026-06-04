@@ -47,6 +47,9 @@ REALTIME_CHUNK_MS = int(os.environ.get("WOODY_REALTIME_CHUNK_MS", "100"))
 REALTIME_VOICE = os.environ.get("WOODY_REALTIME_VOICE", TTS_VOICE)
 REALTIME_SILENCE_MS = int(os.environ.get("WOODY_REALTIME_SILENCE_MS", "450"))
 REALTIME_VAD_THRESHOLD = float(os.environ.get("WOODY_REALTIME_VAD_THRESHOLD", "0.55"))
+XAI_REALTIME_VAD_THRESHOLD = float(
+    os.environ.get("WOODY_XAI_REALTIME_VAD_THRESHOLD", "0.22")
+)
 REALTIME_ECHO_GUARD_MS = int(os.environ.get("WOODY_REALTIME_ECHO_GUARD_MS", "1400"))
 REALTIME_PLAYBACK_MUTE_SECONDS = float(
     os.environ.get("WOODY_REALTIME_PLAYBACK_MUTE_SECONDS", "45")
@@ -527,7 +530,7 @@ def parse_args():
     parser.add_argument("--capture-channels", type=int, default=REALTIME_CAPTURE_CHANNELS)
     parser.add_argument("--chunk-ms", type=int, default=REALTIME_CHUNK_MS)
     parser.add_argument("--silence-ms", type=int, default=REALTIME_SILENCE_MS)
-    parser.add_argument("--vad-threshold", type=float, default=REALTIME_VAD_THRESHOLD)
+    parser.add_argument("--vad-threshold", type=float)
     parser.add_argument("--echo-guard-ms", type=int, default=REALTIME_ECHO_GUARD_MS)
     parser.add_argument(
         "--playback-mute-seconds",
@@ -547,6 +550,12 @@ def parse_args():
         args.model = XAI_REALTIME_MODEL if args.provider == "xai" else REALTIME_MODEL
     if args.voice is None:
         args.voice = XAI_REALTIME_VOICE if args.provider == "xai" else REALTIME_VOICE
+    if args.vad_threshold is None:
+        args.vad_threshold = (
+            XAI_REALTIME_VAD_THRESHOLD
+            if args.provider == "xai"
+            else REALTIME_VAD_THRESHOLD
+        )
     return args
 
 

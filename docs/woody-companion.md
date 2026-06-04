@@ -324,6 +324,13 @@ Realtime WebSocket endpoint. You can override the model or voice:
 WOODY_XAI_REALTIME_MODEL=grok-voice-think-fast-1.0 WOODY_XAI_REALTIME_VOICE=rex ./go woody darkrealtime
 ```
 
+xAI/Grok uses a more sensitive VAD threshold by default (`0.22`). If Dark Woody
+still does not hear you, lower it for a test:
+
+```bash
+WOODY_XAI_REALTIME_VAD_THRESHOLD=0.12 ./go woody darkrealtime
+```
+
 Realtime mode loads the same private memory as the stable Woody mode. Woody is
 explicitly instructed that his name is Woody, that he is speaking with Laurent,
 and that he can use Laurent's private memory when it is relevant without

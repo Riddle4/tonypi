@@ -301,12 +301,23 @@ def detect_personality_switch(text):
 
     dark_patterns = (
         r"\bactive dark woody\b",
+        r"\bactive dark woodie\b",
+        r"\bactive dark woudi\b",
+        r"\bactive le mode dark police\b",
         r"\bactive le mode dark woody\b",
+        r"\bactive le mode dark woodie\b",
         r"\bpasse en dark woody\b",
+        r"\bpasse en dark woodie\b",
+        r"\bpasse en dark police\b",
         r"\bpasse en mode dark woody\b",
+        r"\bpasse en mode dark woodie\b",
+        r"\bpasse en mode dark police\b",
         r"\bpasse en mode dark\b",
         r"\bdeviens dark woody\b",
+        r"\bdeviens dark woodie\b",
         r"\bmode dark woody\b",
+        r"\bmode dark woodie\b",
+        r"\bmode dark police\b",
     )
     normal_patterns = (
         r"\bmode normal\b",

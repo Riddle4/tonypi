@@ -125,7 +125,10 @@ Regle importante sur la memoire:
   lieu d'inventer.
 
 Pour cette version experimentale Realtime, tu discutes seulement. Les mouvements
-physiques du robot seront ajoutes ensuite comme outils separes.
+physiques explicites sont executes par le programme principal quand la phrase
+contient une commande claire comme avance, recule, tourne a droite, danse,
+salue, squat ou stop. Dans ce cas, reponds tres court, par exemple "D'accord."
+ou "Je le fais.", sans expliquer que tu ne peux pas bouger.
 """
 
 
@@ -466,30 +469,33 @@ class RealtimeWoody:
 
     def handle_user_text(self, text):
         if not text:
-            return
+            return False
 
         requested_mode = detect_personality_switch(text)
         if requested_mode == "dark" and not self.args.dark:
             print("[realtime] passage vers Dark Woody non-realtime", flush=True)
+            self.cancel_response()
             self.pending_mode_switch = "dark"
             self.close()
-            return
+            return True
 
         if self.args.dark:
-            return
+            return False
 
         plan = fast_plan(text)
         if not plan:
-            return
+            return False
 
         has_physical_action = bool(
             plan.get("stop_motion") or plan.get("dance_index") or plan.get("actions")
         )
         if not has_physical_action:
-            return
+            return False
 
         print("[realtime] commande physique detectee", flush=True)
+        self.cancel_response()
         execute_plan(plan, dry_run=self.args.dry_run)
+        return True
 
     def mute_input(self, seconds):
         until = time.monotonic() + seconds
@@ -516,6 +522,15 @@ class RealtimeWoody:
         except Exception as exc:
             if self.args.verbose:
                 print(f"[realtime] input clear failed: {exc}", flush=True)
+
+    def cancel_response(self):
+        if self.ws is None:
+            return
+        try:
+            send_event(self.ws, {"type": "response.cancel"})
+        except Exception as exc:
+            if self.args.verbose:
+                print(f"[realtime] response cancel failed: {exc}", flush=True)
 
     def append_input_audio(self, chunk):
         if self.ws is None:
@@ -679,8 +694,9 @@ class RealtimeWoody:
                                 text = ""
                             if text:
                                 print(f"Vous: {text}", flush=True)
-                                self.handle_user_text(text)
-                                self.send_text_turn(text)
+                                consumed = self.handle_user_text(text)
+                                if not consumed:
+                                    self.send_text_turn(text)
                             else:
                                 print("[realtime] transcription vide ignoree", flush=True)
                         else:

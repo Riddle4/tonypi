@@ -3,6 +3,7 @@
 
 import argparse
 import os
+import statistics
 import subprocess
 import sys
 import time
@@ -61,6 +62,7 @@ ALIASES = {
 
 DANCE_ALIASES = {"danse", "dance", "dancer"}
 STOP_ALIASES = {"stop", "arrete", "arret", "immobile"}
+BATTERY_ALIASES = {"bat", "batt", "battery", "batterie", "pile"}
 
 
 def normalize(text):
@@ -101,6 +103,62 @@ def stop_motion(dry_run=False):
         print(f"[go] dance stop failed: {exc}")
 
 
+def battery_percent(voltage):
+    # TonyPi battery is typically a 3S Li-ion/LiPo pack.
+    empty = 10.5
+    full = 12.6
+    return round(max(0.0, min(1.0, (voltage - empty) / (full - empty))) * 100)
+
+
+def battery_status(percent):
+    if percent >= 70:
+        return "OK"
+    if percent >= 35:
+        return "moyen"
+    if percent >= 15:
+        return "bas"
+    return "critique"
+
+
+def read_battery(samples=8, timeout=5.0):
+    try:
+        from hiwonder.ros_robot_controller_sdk import Board
+    except Exception as exc:
+        raise RuntimeError(f"battery SDK unavailable: {exc}")
+
+    board = Board()
+    board.enable_reception(True)
+    values = []
+    deadline = time.monotonic() + timeout
+
+    while time.monotonic() < deadline and len(values) < samples:
+        value = board.get_battery()
+        if value is not None:
+            values.append(value)
+        time.sleep(0.03)
+
+    if not values:
+        raise RuntimeError("battery value unavailable")
+
+    millivolts = int(statistics.median(values))
+    voltage = millivolts / 1000.0
+    percent = battery_percent(voltage)
+    return millivolts, voltage, percent, len(values)
+
+
+def show_battery(dry_run=False):
+    if dry_run:
+        print("[go] battery: dry-run")
+        return
+
+    millivolts, voltage, percent, samples = read_battery()
+    print(
+        f"[go] batterie: {voltage:.2f} V ({millivolts} mV), "
+        f"~{percent}% - {battery_status(percent)} "
+        f"({samples} mesures)"
+    )
+
+
 def run_action(action_name, repeat=1, dry_run=False):
     if action_name not in SAFE_ACTIONS:
         raise ValueError(f"Unknown action: {action_name}")
@@ -133,6 +191,8 @@ def list_commands():
     print("  danse [1-4]")
     print("\nSecurite:")
     print("  stop")
+    print("\nBatterie:")
+    print("  bat")
 
 
 def parse_repeat(value):
@@ -157,6 +217,10 @@ def main():
 
     if command in STOP_ALIASES:
         stop_motion(dry_run=args.dry_run)
+        return
+
+    if command in BATTERY_ALIASES:
+        show_battery(dry_run=args.dry_run)
         return
 
     if command in DANCE_ALIASES:

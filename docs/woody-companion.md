@@ -112,6 +112,7 @@ cd /home/pi/cosmo_robotics
 ./go squat
 ./go danse 2
 ./go avance 2
+./go bat
 ./go stop
 ```
 

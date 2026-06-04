@@ -71,6 +71,7 @@ XAI_BASE_URL = os.environ.get("XAI_BASE_URL", "https://api.x.ai/v1")
 TRANSCRIBE_MODEL = os.environ.get("WOODY_TRANSCRIBE_MODEL", "gpt-4o-transcribe")
 TTS_MODEL = os.environ.get("WOODY_TTS_MODEL", "gpt-4o-mini-tts")
 TTS_VOICE = os.environ.get("WOODY_TTS_VOICE", "shimmer")
+DARK_TTS_VOICE = os.environ.get("WOODY_DARK_TTS_VOICE", "nova")
 TTS_INSTRUCTIONS = os.environ.get(
     "WOODY_TTS_INSTRUCTIONS",
     (
@@ -82,9 +83,11 @@ TTS_INSTRUCTIONS = os.environ.get(
 DARK_TTS_INSTRUCTIONS = os.environ.get(
     "WOODY_DARK_TTS_INSTRUCTIONS",
     (
-        "Parle en francais europeen naturel avec une voix de femme francaise, "
-        "plus basse, seche, malicieuse et un peu moqueuse. Evite toute "
-        "intonation anglophone. Reste attachante sous l'ironie."
+        "Parle uniquement en francais de France, avec une voix de femme "
+        "francaise adulte, naturelle et proche. Prononce les voyelles et les "
+        "liaisons comme une personne francophone native, sans accent anglais "
+        "ni melodie americaine. Le ton est plus bas, sec, malicieux et un peu "
+        "moqueur, mais reste attachant sous l'ironie."
     ),
 )
 USER_NAME = os.environ.get("WOODY_USER_NAME", "Laurent")
@@ -743,10 +746,14 @@ def tts_instructions(dark=False):
     return DARK_TTS_INSTRUCTIONS if dark else TTS_INSTRUCTIONS
 
 
+def tts_voice(dark=False):
+    return DARK_TTS_VOICE if dark else TTS_VOICE
+
+
 def speak_blocking(text, dark=False):
     kwargs = {
         "model": TTS_MODEL,
-        "voice": TTS_VOICE,
+        "voice": tts_voice(dark=dark),
         "input": text,
     }
     instructions = tts_instructions(dark=dark)

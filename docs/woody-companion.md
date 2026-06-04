@@ -197,9 +197,9 @@ Woody uses OpenAI text-to-speech with `gpt-4o-mini-tts`. The default normal
 voice is `shimmer`, with instructions asking for a natural French female voice
 and a European French accent.
 
-Dark Woody uses a separate default voice, `nova`, with stronger instructions for
-a native French delivery, less Anglo-American melody, and a lower, drier, more
-teasing tone.
+Dark Woody uses a separate default voice, `onyx`, with stronger instructions for
+a native French delivery, less Anglo-American melody, and a deeper, hoarser,
+more guttural male tone where the model can produce it.
 
 You can test another built-in OpenAI voice without editing code:
 
@@ -210,14 +210,14 @@ WOODY_TTS_VOICE=nova python3 woody_companion.py --speak
 You can test another voice only for Dark Woody:
 
 ```bash
-WOODY_DARK_TTS_VOICE=shimmer python3 woody_companion.py --speak
+WOODY_DARK_TTS_VOICE=ash python3 woody_companion.py --speak
 ```
 
 You can also override the French voice direction:
 
 ```bash
 WOODY_TTS_INSTRUCTIONS="Parle en francais naturel, voix de femme francaise, ton pose." python3 woody_companion.py --speak
-WOODY_DARK_TTS_INSTRUCTIONS="Parle uniquement en francais de France, voix de femme francaise, sans accent anglais, ton ironique et sec." python3 woody_companion.py --speak
+WOODY_DARK_TTS_INSTRUCTIONS="Parle uniquement en francais de France, voix d'homme francais tres grave, rauque et gutturale, sans accent anglais, ton ironique et sombre." python3 woody_companion.py --speak
 ```
 
 ## Running

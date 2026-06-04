@@ -71,7 +71,7 @@ XAI_BASE_URL = os.environ.get("XAI_BASE_URL", "https://api.x.ai/v1")
 TRANSCRIBE_MODEL = os.environ.get("WOODY_TRANSCRIBE_MODEL", "gpt-4o-transcribe")
 TTS_MODEL = os.environ.get("WOODY_TTS_MODEL", "gpt-4o-mini-tts")
 TTS_VOICE = os.environ.get("WOODY_TTS_VOICE", "shimmer")
-DARK_TTS_VOICE = os.environ.get("WOODY_DARK_TTS_VOICE", "nova")
+DARK_TTS_VOICE = os.environ.get("WOODY_DARK_TTS_VOICE", "onyx")
 TTS_INSTRUCTIONS = os.environ.get(
     "WOODY_TTS_INSTRUCTIONS",
     (
@@ -83,11 +83,12 @@ TTS_INSTRUCTIONS = os.environ.get(
 DARK_TTS_INSTRUCTIONS = os.environ.get(
     "WOODY_DARK_TTS_INSTRUCTIONS",
     (
-        "Parle uniquement en francais de France, avec une voix de femme "
-        "francaise adulte, naturelle et proche. Prononce les voyelles et les "
-        "liaisons comme une personne francophone native, sans accent anglais "
-        "ni melodie americaine. Le ton est plus bas, sec, malicieux et un peu "
-        "moqueur, mais reste attachant sous l'ironie."
+        "Parle uniquement en francais de France, avec une voix d'homme "
+        "francais adulte, tres grave, rauque et gutturale si possible. "
+        "Prononce les voyelles et les liaisons comme une personne francophone "
+        "native, sans accent anglais ni melodie americaine. Le ton est sec, "
+        "lent, sombre, malicieux et un peu moqueur, mais reste attachant sous "
+        "l'ironie."
     ),
 )
 USER_NAME = os.environ.get("WOODY_USER_NAME", "Laurent")

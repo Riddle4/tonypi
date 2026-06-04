@@ -331,6 +331,16 @@ still does not hear you, lower it for a test:
 WOODY_XAI_REALTIME_VAD_THRESHOLD=0.12 ./go woody darkrealtime
 ```
 
+Dark Woody Realtime uses local VAD by default because xAI's server VAD can be
+less reliable on the TonyPi microphone. If it still misses your voice, lower the
+local RMS threshold:
+
+```bash
+python3 woody_realtime.py --provider xai --dark --local-vad-rms-threshold 650 --verbose
+```
+
+The default local threshold is `1100`, which should avoid most room noise.
+
 Realtime mode loads the same private memory as the stable Woody mode. Woody is
 explicitly instructed that his name is Woody, that he is speaking with Laurent,
 and that he can use Laurent's private memory when it is relevant without

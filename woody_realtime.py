@@ -50,6 +50,15 @@ REALTIME_VAD_THRESHOLD = float(os.environ.get("WOODY_REALTIME_VAD_THRESHOLD", "0
 XAI_REALTIME_VAD_THRESHOLD = float(
     os.environ.get("WOODY_XAI_REALTIME_VAD_THRESHOLD", "0.22")
 )
+XAI_LOCAL_VAD = os.environ.get("WOODY_XAI_LOCAL_VAD", "1").lower() not in {
+    "0",
+    "false",
+    "no",
+}
+LOCAL_VAD_RMS_THRESHOLD = int(os.environ.get("WOODY_LOCAL_VAD_RMS_THRESHOLD", "1100"))
+LOCAL_VAD_SILENCE_MS = int(os.environ.get("WOODY_LOCAL_VAD_SILENCE_MS", "750"))
+LOCAL_VAD_MIN_SPEECH_MS = int(os.environ.get("WOODY_LOCAL_VAD_MIN_SPEECH_MS", "250"))
+LOCAL_VAD_PREFIX_CHUNKS = int(os.environ.get("WOODY_LOCAL_VAD_PREFIX_CHUNKS", "3"))
 REALTIME_ECHO_GUARD_MS = int(os.environ.get("WOODY_REALTIME_ECHO_GUARD_MS", "1400"))
 REALTIME_PLAYBACK_MUTE_SECONDS = float(
     os.environ.get("WOODY_REALTIME_PLAYBACK_MUTE_SECONDS", "45")
@@ -151,6 +160,14 @@ def send_event(ws, event):
 def session_update_event(args):
     transcription_model = "grok-transcribe" if args.provider == "xai" else "gpt-4o-transcribe"
     instructions = dark_realtime_instructions() if args.dark else realtime_instructions()
+    turn_detection = None
+    if not args.local_vad:
+        turn_detection = {
+            "type": "server_vad",
+            "threshold": args.vad_threshold,
+            "prefix_padding_ms": 250,
+            "silence_duration_ms": args.silence_ms,
+        }
     return {
         "type": "session.update",
         "session": {
@@ -166,12 +183,7 @@ def session_update_event(args):
                         "model": transcription_model,
                         "language": "fr",
                     },
-                    "turn_detection": {
-                        "type": "server_vad",
-                        "threshold": args.vad_threshold,
-                        "prefix_padding_ms": 250,
-                        "silence_duration_ms": args.silence_ms,
-                    },
+                    "turn_detection": turn_detection,
                 },
                 "output": {
                     "format": {
@@ -319,6 +331,8 @@ class RealtimeWoody:
             "[realtime] capture "
             f"{self.args.capture_rate}Hz/{self.args.capture_channels}ch -> "
             f"{self.args.rate}Hz/mono, vad={self.args.vad_threshold}, "
+            f"local_vad={self.args.local_vad}, "
+            f"local_rms={self.args.local_vad_rms_threshold}, "
             f"echo_guard={self.args.echo_guard_ms}ms",
             flush=True,
         )
@@ -424,6 +438,23 @@ class RealtimeWoody:
             if self.args.verbose:
                 print(f"[realtime] input clear failed: {exc}", flush=True)
 
+    def append_input_audio(self, chunk):
+        if self.ws is None:
+            return
+        send_event(
+            self.ws,
+            {
+                "type": "input_audio_buffer.append",
+                "audio": base64.b64encode(chunk).decode("ascii"),
+            },
+        )
+
+    def commit_input_audio(self):
+        if self.ws is None:
+            return
+        send_event(self.ws, {"type": "input_audio_buffer.commit"})
+        send_event(self.ws, {"type": "response.create"})
+
     def capture_audio(self):
         chunk_frames = max(1, int(self.args.capture_rate * self.args.chunk_ms / 1000))
         chunk_bytes = chunk_frames * self.args.capture_channels * 2
@@ -448,6 +479,10 @@ class RealtimeWoody:
         )
         chunks_sent = 0
         next_level_log = time.monotonic() + 1.0
+        speaking = False
+        speech_started_at = None
+        last_voice_at = None
+        prefix_chunks = []
         try:
             while not self.stop_event.is_set():
                 if proc.stdout is None:
@@ -467,14 +502,57 @@ class RealtimeWoody:
                     )
                     next_level_log = time.monotonic() + 1.0
                 if self.input_is_muted():
+                    speaking = False
+                    speech_started_at = None
+                    last_voice_at = None
+                    prefix_chunks.clear()
                     continue
-                send_event(
-                    self.ws,
-                    {
-                        "type": "input_audio_buffer.append",
-                        "audio": base64.b64encode(chunk).decode("ascii"),
-                    },
-                )
+
+                if self.args.local_vad:
+                    now = time.monotonic()
+                    rms = audioop.rms(chunk, 2)
+                    is_voice = rms >= self.args.local_vad_rms_threshold
+
+                    if not speaking:
+                        prefix_chunks.append(chunk)
+                        if len(prefix_chunks) > self.args.local_vad_prefix_chunks:
+                            prefix_chunks.pop(0)
+                        if not is_voice:
+                            continue
+                        speaking = True
+                        speech_started_at = now
+                        last_voice_at = now
+                        print("[realtime] voix detectee locale", flush=True)
+                        for prefix in prefix_chunks:
+                            self.append_input_audio(prefix)
+                            chunks_sent += 1
+                        prefix_chunks.clear()
+                    else:
+                        if is_voice:
+                            last_voice_at = now
+
+                    self.append_input_audio(chunk)
+                    chunks_sent += 1
+
+                    enough_speech = (
+                        speech_started_at is not None
+                        and now - speech_started_at
+                        >= self.args.local_vad_min_speech_ms / 1000.0
+                    )
+                    enough_silence = (
+                        last_voice_at is not None
+                        and now - last_voice_at
+                        >= self.args.local_vad_silence_ms / 1000.0
+                    )
+                    if enough_speech and enough_silence:
+                        print("[realtime] fin de phrase locale", flush=True)
+                        self.commit_input_audio()
+                        speaking = False
+                        speech_started_at = None
+                        last_voice_at = None
+                    continue
+
+                self.append_input_audio(chunk)
                 chunks_sent += 1
         except Exception as exc:
             if not self.stop_event.is_set():
@@ -531,6 +609,14 @@ def parse_args():
     parser.add_argument("--chunk-ms", type=int, default=REALTIME_CHUNK_MS)
     parser.add_argument("--silence-ms", type=int, default=REALTIME_SILENCE_MS)
     parser.add_argument("--vad-threshold", type=float)
+    local_vad_group = parser.add_mutually_exclusive_group()
+    local_vad_group.add_argument("--local-vad", dest="local_vad", action="store_true")
+    local_vad_group.add_argument("--server-vad", dest="local_vad", action="store_false")
+    parser.set_defaults(local_vad=None)
+    parser.add_argument("--local-vad-rms-threshold", type=int, default=LOCAL_VAD_RMS_THRESHOLD)
+    parser.add_argument("--local-vad-silence-ms", type=int, default=LOCAL_VAD_SILENCE_MS)
+    parser.add_argument("--local-vad-min-speech-ms", type=int, default=LOCAL_VAD_MIN_SPEECH_MS)
+    parser.add_argument("--local-vad-prefix-chunks", type=int, default=LOCAL_VAD_PREFIX_CHUNKS)
     parser.add_argument("--echo-guard-ms", type=int, default=REALTIME_ECHO_GUARD_MS)
     parser.add_argument(
         "--playback-mute-seconds",
@@ -556,6 +642,8 @@ def parse_args():
             if args.provider == "xai"
             else REALTIME_VAD_THRESHOLD
         )
+    if args.local_vad is None:
+        args.local_vad = XAI_LOCAL_VAD if args.provider == "xai" else False
     return args
 
 

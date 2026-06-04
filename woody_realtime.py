@@ -297,7 +297,7 @@ class RealtimeWoody:
             self.player.finish()
             self.output_active.clear()
             self.clear_input_buffer()
-            self.mute_input(self.args.echo_guard_ms / 1000.0)
+            self.set_input_mute(self.args.echo_guard_ms / 1000.0)
             print("[realtime] reponse terminee", flush=True)
             print("[realtime] a toi", flush=True)
             return
@@ -324,9 +324,17 @@ class RealtimeWoody:
         with self.input_mute_lock:
             self.input_muted_until = max(self.input_muted_until, until)
 
+    def set_input_mute(self, seconds):
+        with self.input_mute_lock:
+            self.input_muted_until = time.monotonic() + seconds
+
     def input_is_muted(self):
         with self.input_mute_lock:
             return time.monotonic() < self.input_muted_until
+
+    def input_mute_remaining(self):
+        with self.input_mute_lock:
+            return max(0.0, self.input_muted_until - time.monotonic())
 
     def clear_input_buffer(self):
         if self.ws is None:
@@ -372,7 +380,12 @@ class RealtimeWoody:
                     break
                 chunk = self.prepare_input_audio(chunk)
                 if self.args.verbose and time.monotonic() >= next_level_log:
-                    print(f"[realtime] audio rms {audioop.rms(chunk, 2)}", flush=True)
+                    muted_for = self.input_mute_remaining()
+                    muted = f", muted={muted_for:.1f}s" if muted_for > 0 else ""
+                    print(
+                        f"[realtime] audio rms {audioop.rms(chunk, 2)}{muted}",
+                        flush=True,
+                    )
                     next_level_log = time.monotonic() + 1.0
                 if self.input_is_muted():
                     continue

@@ -332,6 +332,13 @@ Realtime now runs half-duplex by default: while Woody is speaking, microphone
 audio is not sent to OpenAI. When the log prints `[realtime] a toi`, Woody is
 listening again.
 
+If a long Realtime answer is cut off while Woody is still speaking, increase the
+audio drain timeout:
+
+```bash
+WOODY_REALTIME_PLAYBACK_DRAIN_TIMEOUT=90 ./go woody realtime
+```
+
 If it does not detect your voice, lower the threshold:
 
 ```bash

@@ -47,6 +47,9 @@ REALTIME_ECHO_GUARD_MS = int(os.environ.get("WOODY_REALTIME_ECHO_GUARD_MS", "140
 REALTIME_PLAYBACK_MUTE_SECONDS = float(
     os.environ.get("WOODY_REALTIME_PLAYBACK_MUTE_SECONDS", "45")
 )
+REALTIME_PLAYBACK_DRAIN_TIMEOUT = float(
+    os.environ.get("WOODY_REALTIME_PLAYBACK_DRAIN_TIMEOUT", "60")
+)
 
 
 def realtime_instructions():
@@ -118,8 +121,9 @@ def session_update_event(args):
 
 
 class AudioPlayer:
-    def __init__(self, rate):
+    def __init__(self, rate, drain_timeout):
         self.rate = rate
+        self.drain_timeout = drain_timeout
         self.lock = threading.RLock()
         self.proc = None
         self.first_audio_at = None
@@ -170,7 +174,7 @@ class AudioPlayer:
                 except Exception:
                     pass
                 try:
-                    self.proc.wait(timeout=8)
+                    self.proc.wait(timeout=self.drain_timeout)
                 except subprocess.TimeoutExpired:
                     self.proc.terminate()
                     try:
@@ -203,7 +207,10 @@ class RealtimeWoody:
         self.stop_event = threading.Event()
         self.ws = None
         self.audio_thread = None
-        self.player = AudioPlayer(rate=args.rate)
+        self.player = AudioPlayer(
+            rate=args.rate,
+            drain_timeout=args.playback_drain_timeout,
+        )
         self.events = queue.Queue()
         self.connected_at = None
         self.ratecv_state = None
@@ -455,6 +462,11 @@ def parse_args():
         "--playback-mute-seconds",
         type=float,
         default=REALTIME_PLAYBACK_MUTE_SECONDS,
+    )
+    parser.add_argument(
+        "--playback-drain-timeout",
+        type=float,
+        default=REALTIME_PLAYBACK_DRAIN_TIMEOUT,
     )
     parser.add_argument("--max-output-tokens", type=int, default=450)
     parser.add_argument("--probe", action="store_true", help="connect, update session, then exit")

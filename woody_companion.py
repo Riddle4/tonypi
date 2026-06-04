@@ -94,7 +94,7 @@ DARK_TTS_INSTRUCTIONS = os.environ.get(
 USER_NAME = os.environ.get("WOODY_USER_NAME", "Laurent")
 API_TIMEOUT = float(os.environ.get("WOODY_API_TIMEOUT", "20"))
 XAI_API_TIMEOUT = float(os.environ.get("WOODY_XAI_API_TIMEOUT", "30"))
-SPEECH_TIMEOUT = float(os.environ.get("WOODY_SPEECH_TIMEOUT", "8"))
+SPEECH_TIMEOUT = float(os.environ.get("WOODY_SPEECH_TIMEOUT", "30"))
 LISTEN_COOLDOWN = float(os.environ.get("WOODY_LISTEN_COOLDOWN", "0.25"))
 MIN_VOICE_PEAK_MARGIN = int(os.environ.get("WOODY_MIN_VOICE_PEAK_MARGIN", "150"))
 TTS_STREAM = os.environ.get("WOODY_TTS_STREAM", "1").lower() not in {"0", "false", "no"}
@@ -257,7 +257,8 @@ Style:
   questions qui derangent et te moquer gentiment des idees molles.
 - Tu restes attachant, loyal et utile. Tu ne deviens jamais cruel, humiliant,
   haineux, violent ou gratuitement blessant.
-- Tu gardes les reponses assez courtes pour une conversation vocale.
+- Tu gardes les reponses courtes pour une conversation vocale: 1 a 3 phrases,
+  sauf si Laurent te demande explicitement de developper.
 - Si tu utilises des informations recentes, dis clairement quand quelque chose
   peut changer avec le temps.
 
@@ -775,7 +776,7 @@ def play_streaming_mp3(response, start_time=None):
             proc.stdin.write(chunk)
             proc.stdin.flush()
         proc.stdin.close()
-        proc.wait(timeout=max(1.0, SPEECH_TIMEOUT))
+        proc.wait()
     finally:
         if proc.poll() is None:
             proc.terminate()
@@ -831,7 +832,7 @@ def speak(text, enabled=True, dark=False):
         except Exception as exc:
             errors.append(exc)
 
-    thread = threading.Thread(target=worker, daemon=True)
+    thread = threading.Thread(target=worker)
     thread.start()
     thread.join(SPEECH_TIMEOUT)
     if thread.is_alive():

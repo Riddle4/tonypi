@@ -279,6 +279,13 @@ badly on the robot, disable streaming for a test:
 WOODY_TTS_STREAM=0 python3 woody_companion.py --speak
 ```
 
+Spoken replies are allowed up to 30 seconds by default. If a long answer is cut
+off, increase this guard:
+
+```bash
+WOODY_SPEECH_TIMEOUT=45 python3 woody_companion.py --speak
+```
+
 If it does not detect your voice, lower the threshold:
 
 ```bash
